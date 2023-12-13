@@ -86,17 +86,17 @@ impl Installer {
         Ok(installer)
     }
 
-    pub fn dummy_new() -> Self {
-        let dummy_installer = PathBuf::from(std::env::var("TCLI_DUMMY_INSTALLER").unwrap());
+    pub fn override_new() -> Self {
+        let override_installer = PathBuf::from(std::env::var("TCLI_INSTALLER_OVERRIDE").unwrap());
 
-        if !dummy_installer.is_file() {
+        if !override_installer.is_file() {
             panic!(
-                "TCLI_DUMMY_INSTALLER is set to {}, which does not point to a file that actually exists.", dummy_installer.to_str().unwrap()
+                "TCLI_INSTALLER_OVERRIDE is set to {}, which does not point to a file that actually exists.", override_installer.to_str().unwrap()
             )
         }
         
         Installer {
-            exec_path: dummy_installer
+            exec_path: override_installer
         }
     }
 
@@ -105,7 +105,7 @@ impl Installer {
         package: &Package, 
         package_dir: &Path, 
         state_dir: &Path, 
-        game_dir: &Path, 
+        staging_dir: &Path, 
         reporter: &dyn ProgressBarTrait
     ) -> Result<Vec<PathBuf>, Error> {  
         // Determine if the package is a modloader or not.
@@ -117,7 +117,7 @@ impl Installer {
             package_deps: package.dependencies.clone(),
             package_dir: package_dir.to_path_buf(),
             state_dir: state_dir.to_path_buf(),
-            game_dir: game_dir.to_path_buf(),
+            staging_dir: staging_dir.to_path_buf(),
         };
 
         let progress_message = format!(
@@ -144,7 +144,7 @@ impl Installer {
                 let message = 
                     format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
                 
-                Err(Error::InstallerBadResponse { package_id: format!("yes"), message })
+                Err(Error::InstallerBadResponse { package_id: package.identifier.to_string(), message })
             }
         }
     }

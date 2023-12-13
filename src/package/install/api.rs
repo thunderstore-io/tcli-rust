@@ -25,7 +25,7 @@ pub enum Request {
         package_deps: Vec<PackageReference>,
         package_dir: PathBuf,
         state_dir: PathBuf,
-        game_dir: PathBuf,
+        staging_dir: PathBuf,
     },
     PackageUninstall {
         is_modloader: bool,
@@ -33,7 +33,7 @@ pub enum Request {
         package_deps: Vec<PackageReference>,
         package_dir: PathBuf,
         state_dir: PathBuf,
-        game_dir: PathBuf,
+        staging_dir: PathBuf,
         tracked_files: Vec<PathBuf>,
     },
     StartGame {

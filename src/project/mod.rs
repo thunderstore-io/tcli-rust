@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use colored::Colorize;
 use futures::future::try_join_all;
 pub use publish::publish;
+use walkdir::WalkDir;
 use zip::write::FileOptions;
 
 use self::lock::LockFile;
@@ -33,6 +34,7 @@ pub enum ProjectKind {
 pub struct Project {
     pub base_dir: PathBuf,
     pub state_dir: PathBuf,
+    pub staging_dir: PathBuf,
     pub manifest_path: PathBuf,
     pub lockfile_path: PathBuf,
     pub game_registry_path: PathBuf,
@@ -41,10 +43,12 @@ pub struct Project {
 impl Project {
     pub fn open(project_dir: &Path) -> Result<Self, Error> {
         // TODO: Validate that the following paths exist.
+        let project_dir = project_dir.canonicalize()?;
 
         Ok(Project {
             base_dir: project_dir.to_path_buf(),
             state_dir: project_dir.join(".tcli/project_state"),
+            staging_dir: project_dir.join(".tcli/staging"),
             manifest_path: project_dir.join("Thunderstore.toml"),
             lockfile_path: project_dir.join("Thunderstore.lock"),
             game_registry_path: project_dir.join(".tcli/game_registry.json"),
@@ -100,9 +104,13 @@ impl Project {
         let project_state = project_dir.join(".tcli/project_state");
         fs::create_dir_all(&project_state)?;
 
+        let staging_dir = project_dir.join(".tcli/staging");
+        fs::create_dir_all(&staging_dir)?;
+
         let project = Project {
             base_dir: project_dir.to_path_buf(),
             state_dir: project_state,
+            staging_dir,
             manifest_path,
             lockfile_path: project_dir.join("Thunderstore.lock"),
             game_registry_path: project_dir.join(".tcli/game_registry.json"),
@@ -205,8 +213,8 @@ impl Project {
         )
         .await?;
 
-        let installer = Installer::dummy_new();
-        let game_dir = PathBuf::from("C:\\Users\\Ethan\\Dev\\rust\\thunderstore-cli\\testing\\game\\");
+        let installer = Installer::override_new();
+        // let game_dir = PathBuf::from("C:\\Users\\Ethan\\Dev\\rust\\thunderstore-cli\\testing\\game\\");
         
         // Download / install each package as needed.
         let multi = reporter.create_progress();
@@ -222,17 +230,27 @@ impl Project {
                     package, 
                     &package_dir, 
                     &self.state_dir,
-                    &game_dir,
+                    &self.staging_dir,
                     bar
                 ).await;
 
-                let finished_msg = format!(
-                    "{} Installed {}-{} {}",
-                    "[✓]".green(),
-                    package.identifier.namespace.bold(),
-                    package.identifier.name.bold(),
-                    package.identifier.version.to_string().truecolor(90, 90, 90)
-                );
+                let finished_msg = match tracked_files {
+                    Ok(_) => format!(
+                        "{} Installed {}-{} {}",
+                        "[✓]".green(),
+                        package.identifier.namespace.bold(),
+                        package.identifier.name.bold(),
+                        package.identifier.version.to_string().truecolor(90, 90, 90)
+                    ),
+                    Err(ref e) => format!(
+                        "{} Error {}-{} {}\n\t{}",
+                        "[x]".red(),
+                        package.identifier.namespace.bold(),
+                        package.identifier.name.bold(),
+                        package.identifier.version.to_string().truecolor(90, 90, 90),
+                        e,
+                    ),
+                };
 
                 bar.println(&finished_msg);
                 bar.finish_and_clear();
@@ -254,8 +272,26 @@ impl Project {
         let game_data = registry::get_game_data(&self.game_registry_path, game_id)
             .ok_or_else(|| Error::InvalidGameId(game_id.to_string()))?;
         let game_dist = game_data.active_distribution;
+
+        // Copy the contents of staging into the game directory.
+        let game_dir = &game_dist.game_dir;
+        let staged_files = WalkDir::new(&self.staging_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|x| x.path().is_file());
+
+        for file in staged_files {
+            let dest = game_dir.join(file.path().strip_prefix(&self.staging_dir).unwrap());
+            let dest_parent = dest.parent().unwrap();
+
+            if !dest_parent.is_dir() {
+                fs::create_dir_all(dest_parent)?;
+            }
+
+            fs::copy(file.path(), &dest)?;
+        }
         
-        let installer = Installer::dummy_new();
+        let installer = Installer::override_new();
         let pid = installer.start_game(
             mods_enabled,
             &self.state_dir,
