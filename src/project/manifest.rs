@@ -14,8 +14,7 @@ pub struct ProjectManifest {
     pub package: Option<PackageData>,
     pub build: Option<BuildData>,
     
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub publish: Vec<PublishData>,
+    pub publish: Option<Vec<PublishData>>,
     
     #[serde(flatten)]
     pub dependencies: DependencyData,
@@ -33,7 +32,7 @@ impl ProjectManifest {
             },
             package: Some(Default::default()),
             build: Some(Default::default()),
-            publish: vec![Default::default()],
+            publish: Some(vec![Default::default()]),
             dependencies: Default::default(),
             project_dir: None,
         }
@@ -44,7 +43,7 @@ impl ProjectManifest {
             config: Default::default(),
             package: None,
             build: None,
-            publish: vec![],
+            publish: None,
             dependencies: Default::default(),
             project_dir: None,
         }

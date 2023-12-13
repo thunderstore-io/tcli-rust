@@ -18,17 +18,17 @@ pub async fn publish(
         Err(Error::FileNotFound(archive_path.clone()))?;
     }
 
+    let publish = manifest.publish.as_ref().unwrap();
+
     let usermedia = publish::upload_file(archive_path).await?;
     publish::package_submit(&PackageSubmissionMetadata {
         author_name: package.namespace.to_string(),
-        communities: manifest
-            .publish
+        communities: publish
             .iter()
             .map(|p| p.community.clone())
             .collect(),
         has_nsfw_content: package.contains_nsfw_content,
-        community_categories: manifest
-            .publish
+        community_categories: publish
             .iter()
             .map(|p| (p.community.clone(), p.categories.clone()))
             .collect(),
