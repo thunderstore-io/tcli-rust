@@ -17,6 +17,7 @@ use crate::package::install::Installer;
 use crate::package::{resolver, Package};
 use crate::project::manifest::ProjectManifest;
 use crate::project::overrides::ProjectOverrides;
+use crate::project::state::{StagedFile, StateEntry, StateFile};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
 use crate::ui::reporter::Reporter;
@@ -25,6 +26,7 @@ pub mod lock;
 pub mod manifest;
 pub mod overrides;
 mod publish;
+mod state;
 
 pub enum ProjectKind {
     Dev(ProjectOverrides),
@@ -38,6 +40,7 @@ pub struct Project {
     pub manifest_path: PathBuf,
     pub lockfile_path: PathBuf,
     pub game_registry_path: PathBuf,
+    pub statefile_path: PathBuf,
 }
 
 impl Project {
@@ -52,6 +55,7 @@ impl Project {
             manifest_path: project_dir.join("Thunderstore.toml"),
             lockfile_path: project_dir.join("Thunderstore.lock"),
             game_registry_path: project_dir.join(".tcli/game_registry.json"),
+            statefile_path: project_dir.join(".tcli/state.json"),
         })
     }
 
@@ -107,6 +111,9 @@ impl Project {
         let staging_dir = project_dir.join(".tcli/staging");
         fs::create_dir_all(&staging_dir)?;
 
+        let statefile_path = project_dir.join(".tcli/state.json");
+        fs::write(&statefile_path, serde_json::to_string_pretty(&StateFile::default())?)?;
+
         let project = Project {
             base_dir: project_dir.to_path_buf(),
             state_dir: project_state,
@@ -114,6 +121,7 @@ impl Project {
             manifest_path,
             lockfile_path: project_dir.join("Thunderstore.lock"),
             game_registry_path: project_dir.join(".tcli/game_registry.json"),
+            statefile_path: project_dir.join(".tcli/state.json"),
         };
 
         // Stop here if all we need is a profile.
@@ -214,12 +222,11 @@ impl Project {
         .await?;
 
         let installer = Installer::override_new();
-        // let game_dir = PathBuf::from("C:\\Users\\Ethan\\Dev\\rust\\thunderstore-cli\\testing\\game\\");
-        
+
         // Download / install each package as needed.
         let multi = reporter.create_progress();
         let jobs = resolved_packages
-            .iter()
+            .into_iter()
             .map(|package| async {
                 let bar = multi.add_bar();
                 let bar = bar.as_ref();
@@ -227,7 +234,7 @@ impl Project {
                 // Resolve the package, either downloading it or returning its cached path.
                 let package_dir = package.resolve(bar).await?;
                 let tracked_files = installer.install_package(
-                    package, 
+                    &package,
                     &package_dir, 
                     &self.state_dir,
                     &self.staging_dir,
@@ -254,11 +261,34 @@ impl Project {
 
                 bar.println(&finished_msg);
                 bar.finish_and_clear();
-                
-                tracked_files
+
+                tracked_files.map(|x| (package.identifier, x))
             });
 
-        try_join_all(jobs).await?;
+        let tracked_files = try_join_all(jobs).await?
+            .into_iter()
+            .collect::<Vec<(PackageReference, Vec<PathBuf>)>>();
+
+        // Iterate through each installed mod, separate tracked files into "link" and "stage" variants.
+        // TODO: Make this less hacky, we shouldn't be relying on path ops to determine this.
+        let mut statefile = StateFile::open(&self.statefile_path)?;
+        for (package, tracked_files) in tracked_files {
+            let staged_files = tracked_files
+                .iter()
+                .filter(|x| x.starts_with(&self.staging_dir))
+                .map(|x| StagedFile::new(&x))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let linked_files = tracked_files
+                .into_iter()
+                .filter(|x| x.starts_with(&self.state_dir));
+
+            let group = statefile.state.entry(package).or_insert(StateEntry::default());
+            group.staged.extend(staged_files);
+            group.linked.extend(linked_files);
+        }
+
+        statefile.write(&self.statefile_path)?;
 
         // For now we can regenerate the lockfile from scratch.
         // let mut lockfile = LockFile::open_or_new(&self.lockfile_path)?;
@@ -272,25 +302,34 @@ impl Project {
         let game_data = registry::get_game_data(&self.game_registry_path, game_id)
             .ok_or_else(|| Error::InvalidGameId(game_id.to_string()))?;
         let game_dist = game_data.active_distribution;
+        let game_dir = &game_dist.game_dir;
 
         // Copy the contents of staging into the game directory.
-        let game_dir = &game_dist.game_dir;
-        let staged_files = WalkDir::new(&self.staging_dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|x| x.path().is_file());
+        let mut statefile = StateFile::open(&self.statefile_path)?;
+        let staged_files = statefile
+            .state
+            .values_mut()
+            .flat_map(|x| &mut x.staged);
 
         for file in staged_files {
-            let dest = game_dir.join(file.path().strip_prefix(&self.staging_dir).unwrap());
-            let dest_parent = dest.parent().unwrap();
+            let rel = file.orig.strip_prefix(&self.staging_dir).unwrap();
+            let dest = game_dir.join(rel);
 
+            if file.is_same_as(&dest)? {
+                continue;
+            }
+
+            let dest_parent = dest.parent().unwrap();
             if !dest_parent.is_dir() {
                 fs::create_dir_all(dest_parent)?;
             }
 
-            fs::copy(file.path(), &dest)?;
+            fs::copy(&file.orig, &dest)?;
+            file.dest.push(dest);
         }
-        
+
+        statefile.write(&self.statefile_path)?;
+
         let installer = Installer::override_new();
         let pid = installer.start_game(
             mods_enabled,
@@ -304,10 +343,10 @@ impl Project {
         let game_name = game_dist.exe_path.file_name().unwrap().to_string_lossy();
         let pid_path = self.base_dir.join(".tcli").join(format!("{}.pid", game_name));
 
-        let mut pid_file = File::create(&pid_path)?;
-        pid_file.write(format!("{}", pid).as_bytes())?;
+        let mut pid_file = File::create(pid_path)?;
+        pid_file.write_all(format!("{}", pid).as_bytes())?;
 
-        println!("Started {} with PID {}", game_id, pid);
+        println!("{} has been started with PID {}.", game_data.display_name.green(), pid);
 
         Ok(())
     }
