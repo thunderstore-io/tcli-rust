@@ -1,13 +1,17 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::rc::Rc;
 
-use petgraph::prelude::NodeIndex;
-use petgraph::visit::Dfs;
+use petgraph::prelude::{DfsPostOrder, NodeIndex};
 use petgraph::{algo, Directed, Graph};
+use serde::Serialize;
 
 use crate::ts;
 use crate::error::Error;
 use crate::package::index::{self, PackageIndex};
 use crate::ts::package_reference::PackageReference;
+use crate::ts::version::Version;
+
+pub type InnerDepGraph = Graph<PackageReference, (), Directed>;
 
 pub enum Granularity {
     All,
@@ -16,17 +20,44 @@ pub enum Granularity {
     GreaterVersion,
 }
 
+#[derive(Debug)]
+pub struct GraphDelta {
+    pub add: Vec<PackageReference>,
+    pub del: Vec<PackageReference>,
+}
+
 pub struct DependencyGraph {
-    graph: Graph<PackageReference, (), Directed>,
+    graph: InnerDepGraph,
     index: HashMap<String, NodeIndex>,
 }
 
 impl DependencyGraph {
     pub fn new() -> Self {
+        // Initialize the graph with a root node at index 0.
+        let mut graph = InnerDepGraph::new();
+        let dummy_ref = PackageReference::new("@", "@", Version::new(0, 0, 0)).unwrap();
+        graph.add_node(dummy_ref);
+
         DependencyGraph {
-            graph: Graph::new(),
+            graph,
             index: HashMap::new(),
         }
+    }
+
+    pub fn from_graph(graph: InnerDepGraph) -> Self {
+        let index = graph
+            .node_indices()
+            .map(|x| ((graph[x]).to_loose_ident_string(), x))
+            .collect::<HashMap<String, NodeIndex>>();
+
+        DependencyGraph {
+            graph,
+            index
+        }
+    }
+
+    pub fn into_inner(self) -> InnerDepGraph {
+        self.graph
     }
 
     /// Add a node to the dependency graph, replacing if it already exists within the graph
@@ -50,6 +81,11 @@ impl DependencyGraph {
         let child_index = self.index[&child.to_loose_ident_string()];
 
         self.graph.add_edge(parent_index, child_index, ());
+    }
+
+    pub fn add_rooted_edge(&mut self, child: &PackageReference) {
+        let child_index = self.index[&child.to_loose_ident_string()];
+        self.graph.add_edge(NodeIndex::from(0), child_index, ());
     }
 
     /// Determine if the given value exists within the graph within the specified granularity.
@@ -100,14 +136,80 @@ impl DependencyGraph {
 
     /// Digest the dependency graph, resolving its contents into a DFS-ordered list of package references.
     pub fn digest(&self) -> Vec<&PackageReference> {
-        let mut dfs = Dfs::new(&self.graph, NodeIndex::new(0));
+        let mut dfs = DfsPostOrder::new(&self.graph, NodeIndex::new(0));
         let mut dependencies = Vec::new();
 
         while let Some(element) = dfs.next(&self.graph) {
+            if element.index() == 0 {
+                continue;
+            }
+
+            println!("{:?}", &self.graph[element]);
             dependencies.push(&self.graph[element]);
         }
 
         dependencies
+    }
+
+    pub fn graph_delta(&self, other: &DependencyGraph) -> GraphDelta {
+        // Create lookup tables for self.graph and other.graph.
+        // These tables map loose identifier strings to (index, value) tuples.
+        let self_table = self
+            .digest()
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| (x.to_loose_ident_string(), (i, x)))
+            .collect::<HashMap<_, _>>();
+
+        let other_table = other
+            .digest()
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| (x.to_loose_ident_string(), (i, x)))
+            .collect::<HashMap<_, _>>();
+
+        let mut add = vec![];
+        let mut del = vec![];
+
+        // Handle the following cases:
+        // - self_value.version < other_value.version => ADD other_value + DEL self_value
+        // - !other_table.contains(this_value) => DEL self_value
+        for (key, (self_index, self_value)) in self_table.iter() {
+            let other = other_table.get(key);
+
+            match other {
+                Some((other_index, other_value)) if self_value.version < other_value.version => {
+                    add.push((other_index, (*other_value).clone()));
+                    del.push((self_index, (*self_value).clone()));
+                },
+                Some(_) => (),
+                None => del.push((self_index, (*self_value).clone())),
+            }
+        }
+
+        // Handle the remaining case:
+        // - !this_table.contains(other_value) => ADD other_value
+        add.extend(other_table
+            .iter()
+            .filter_map(|(key, (other_index, other_value))| match self_table.get(key) {
+                Some(_) => None,
+                None => Some((other_index, (*other_value).clone()))
+            }));
+
+        // Sort entries by their index (i, _) to maintain order.
+        add.sort_by(|a, b| a.0.partial_cmp(b.0).unwrap());
+        del.sort_by(|a, b| a.0.partial_cmp(b.0).unwrap());
+
+        GraphDelta {
+            add: add
+                .into_iter()
+                .map(|(_, x)| x)
+                .collect::<Vec<_>>(),
+            del: del
+                .into_iter()
+                .map(|(_, x)| x)
+                .collect::<Vec<_>>(),
+        }
     }
 }
 
@@ -127,7 +229,6 @@ pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<Depende
     let package_index = PackageIndex::open().await?;
 
     let mut graph = DependencyGraph::new();
-
     let mut iter_queue: VecDeque<&PackageReference> =
         VecDeque::from(packages.iter().collect::<Vec<_>>());
 
@@ -150,6 +251,10 @@ pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<Depende
 
             graph.add_edge(package_ident, dependency);
         }
+    }
+
+    for package in packages {
+        graph.add_rooted_edge(&package);
     }
 
     let packages = graph.digest();
