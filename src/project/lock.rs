@@ -2,11 +2,14 @@ use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use md5::digest::FixedOutput;
+use md5::Md5;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::package::Package;
 use crate::Error;
+use crate::package::resolver::{DependencyGraph, InnerDepGraph};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LockFile {
@@ -14,9 +17,8 @@ pub struct LockFile {
     path: PathBuf,
 
     version: u32,
-
-    #[serde(with = "crate::project::lock")]
-    pub packages: HashMap<String, Package>,
+    graph_hash: String,
+    pub package_graph: InnerDepGraph,
 }
 
 impl LockFile {
@@ -32,21 +34,31 @@ impl LockFile {
             })
         } else {
             Ok(LockFile {
-                version: 1,
                 path: path.to_path_buf(),
-                packages: HashMap::new(),
+                version: 1,
+                graph_hash: String::default(),
+                package_graph: InnerDepGraph::default(),
             })
         }
     }
 
-    /// Merges one or more packages into the lockfile, overwriting as needed.
-    pub fn merge(&mut self, packages: &[Package]) {
-        let new_packages = packages
-            .iter()
-            .map(|package| (package.identifier.to_loose_ident_string(), package.clone()))
-            .collect::<HashMap<_, _>>();
+    pub fn with_graph(self, package_graph: DependencyGraph) -> Self {
+        let inner_graph = package_graph.into_inner();
+        let graph_hash = {
+            // Note, this hash is not guaranteed to be stable. This is simply a way for us to determine
+            // if the lockfile has been manually modified.
+            let graph_str = serde_json::to_string(&inner_graph).unwrap();
+            let mut md5 = Md5::default();
 
-        self.packages.extend(new_packages);
+            std::io::copy(&mut graph_str.as_bytes(), &mut md5).unwrap();
+            format!("{:x}", md5.finalize_fixed())
+        };
+
+        LockFile {
+            graph_hash,
+            package_graph: inner_graph,
+            ..self
+        }
     }
 
     /// Writes the lockfile to disk.
