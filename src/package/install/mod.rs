@@ -131,7 +131,7 @@ impl Installer {
         
         let response = self.run(&request).await?;
         match response {
-            Response::PackageInstall { tracked_files } => {
+            Response::PackageInstall { tracked_files, post_hook_context: _ } => {
                 Ok(tracked_files)
             }
 
@@ -156,7 +156,7 @@ impl Installer {
         staging_dir: &Path,
         tracked_files: Vec<TrackedFile>,
         reporter: &dyn ProgressBarTrait
-    ) -> Result<Vec<TrackedFile>, Error> {
+    ) -> Result<(), Error> {
         let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
         let request = Request::PackageUninstall {
             is_modloader,
@@ -178,7 +178,7 @@ impl Installer {
 
         let response = self.run(&request).await?;
         match response {
-            Response::PackageUninstall { tracked_files } => Ok(tracked_files),
+            Response::PackageUninstall { post_hook_context: _ } => Ok(()),
             Response::Error { message } => Err(Error::InstallerError { message }),
             x => {
                 let message =
@@ -232,6 +232,11 @@ impl Installer {
             .unwrap()
             .read_to_string(&mut err_str)
             .await?;
+
+        if !err_str.is_empty() {
+            println!("installer stderr:");
+            println!("{err_str}");
+        }
 
         // println!("installer stdout:");
         // println!("{output_str}");

@@ -69,9 +69,10 @@ pub enum Response {
     },
     PackageInstall {
         tracked_files: Vec<TrackedFile>,
+        post_hook_context: Option<String>,
     },
     PackageUninstall {
-        tracked_files: Vec<TrackedFile>,
+        post_hook_context: Option<String>,
     },
     StartGame {
         pid: u32,  
