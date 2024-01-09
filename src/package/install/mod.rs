@@ -127,11 +127,9 @@ impl Installer {
             package.identifier.name.bold(),
             package.identifier.version.to_string().truecolor(90, 90, 90)
         );
-
         reporter.set_message(format!("Installing {progress_message}"));
         
         let response = self.run(&request).await?;
-
         match response {
             Response::PackageInstall { tracked_files } => {
                 Ok(tracked_files)
@@ -145,6 +143,47 @@ impl Installer {
                 let message = 
                     format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
                 
+                Err(Error::InstallerBadResponse { package_id: package.identifier.to_string(), message })
+            }
+        }
+    }
+
+    pub async fn uninstall_package(
+        &self,
+        package: &Package,
+        package_dir: &Path,
+        state_dir: &Path,
+        staging_dir: &Path,
+        tracked_files: Vec<TrackedFile>,
+        reporter: &dyn ProgressBarTrait
+    ) -> Result<Vec<TrackedFile>, Error> {
+        let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
+        let request = Request::PackageUninstall {
+            is_modloader,
+            package: package.identifier.clone(),
+            package_deps: package.dependencies.clone(),
+            package_dir: package_dir.to_path_buf(),
+            state_dir: state_dir.to_path_buf(),
+            staging_dir: staging_dir.to_path_buf(),
+            tracked_files,
+        };
+
+        let progress_message = format!(
+            "{}-{} {}",
+            package.identifier.namespace.bold(),
+            package.identifier.name.bold(),
+            package.identifier.version.to_string().truecolor(90, 90, 90)
+        );
+        reporter.set_message(format!("Uninstalling {progress_message}"));
+
+        let response = self.run(&request).await?;
+        match response {
+            Response::PackageUninstall { tracked_files } => Ok(tracked_files),
+            Response::Error { message } => Err(Error::InstallerError { message }),
+            x => {
+                let message =
+                    format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
+
                 Err(Error::InstallerBadResponse { package_id: package.identifier.to_string(), message })
             }
         }
