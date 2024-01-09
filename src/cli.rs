@@ -148,27 +148,11 @@ pub enum Commands {
 
     /// Removes a mod from the project.
     Remove {
-        /// The identifier of the game to manage mods for.
-        game_name: String,
+        /// One or mroe package identifiers in the format 'namespace-name(-version)'.
+        packages: Vec<PackageReference>,
 
-        /// Package name in the format 'namespace-name(-version)'.
-        package: String,
-
-        /// Profile that the mod will be installed into.
-        #[clap(long, default_value = "DefaultProfile")]
-        profile: String,
-
-        /// Directory where tcli keeps its data: %APPDATA%/ThunderstoreCLI on Windows and
-        /// ~/.config/ThunderstoreCLI on Linux.
-        #[clap(long)]
-        tcli_directory: Option<PathBuf>,
-
-        /// URL of the default repository.
-        #[clap(long)]
-        repository: Option<String>,
-
-        /// Path of the project configuration file.
-        #[clap(long, default_value = DEFAULT_MANIFEST)]
+        // Path of the project configuration file.
+        #[clap(long, default_value = "./")]
         project_path: PathBuf,
     },
 
