@@ -325,7 +325,7 @@ impl Project {
         let game_dir = &game_dist.game_dir;
 
         // Copy the contents of staging into the game directory.
-        let mut statefile = StateFile::open(&self.statefile_path)?;
+        let mut statefile = StateFile::open_or_new(&self.statefile_path)?;
         let staged_files = statefile
             .state
             .values_mut()
