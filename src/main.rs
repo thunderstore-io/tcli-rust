@@ -14,6 +14,7 @@ use crate::error::Error;
 use crate::game::registry::GameImportBuilder;
 use crate::game::{ecosystem, registry};
 use crate::package::install::Installer;
+use crate::package::resolver::DependencyGraph;
 use crate::project::lock::LockFile;
 use crate::project::overrides::ProjectOverrides;
 use crate::project::Project;
@@ -137,19 +138,18 @@ async fn main() -> Result<(), Error> {
             project.add_packages(&packages[..])?;
             project.commit(reporter).await?;
 
-            return Ok(());
+            Ok(())
+        }
+        Commands::Remove {
+            packages,
+            project_path,
+        } => {
+            ts::init_repository("https://thunderstore.io", None);
+            let reporter = Box::new(IndicatifReporter);
 
-            let lockfile = LockFile::open_or_new(&project_path).unwrap();
-            let installer_package = lockfile
-                .packages
-                .get("TestInstaller-Metherul-0.1.0")
-                .unwrap();
-
-            println!("{:?}", installer_package);
-
-            let installer = Installer::load_and_prepare(&installer_package).await?;
-
-            println!("{:?}", installer.exec_path);
+            let project = Project::open(&project_path)?;
+            project.remove_packages(&packages[..])?;
+            project.commit(reporter).await?;
 
             Ok(())
         }
@@ -277,15 +277,18 @@ async fn main() -> Result<(), Error> {
             ListSubcommand::InstalledMods { project_path } => {
                 let project = Project::open(&project_path)?;
                 let lock = LockFile::open_or_new(&project.lockfile_path)?;
+                let graph = DependencyGraph::from_graph(lock.package_graph);
 
                 println!("Installed packages:");
 
-                for (_, package) in lock.packages {
+
+
+                for package in graph.digest() {
                     println!(
                         "- {}-{} ({})",
-                        package.identifier.namespace.bold(),
-                        package.identifier.name.bold(),
-                        package.identifier.version.to_string().truecolor(90, 90, 90)
+                        package.namespace.bold(),
+                        package.name.bold(),
+                        package.version.to_string().truecolor(90, 90, 90)
                     );
                 }
 
