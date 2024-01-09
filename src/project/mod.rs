@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use colored::Colorize;
 use futures::future::try_join_all;
 pub use publish::publish;
-use walkdir::WalkDir;
 use zip::write::FileOptions;
 
 use self::lock::LockFile;
@@ -17,7 +16,7 @@ use crate::package::install::Installer;
 use crate::package::install::api::TrackedFile;
 use crate::package::{resolver, Package};
 use crate::package::resolver::DependencyGraph;
-use crate::project::manifest::{DependencyData, ProjectManifest};
+use crate::project::manifest::ProjectManifest;
 use crate::project::overrides::ProjectOverrides;
 use crate::project::state::{StagedFile, StateEntry, StateFile};
 use crate::ts::package_manifest::PackageManifestV1;
@@ -228,25 +227,68 @@ impl Project {
 
     /// Commit changes made to the project manifest to the project.
     pub async fn commit(&self, reporter: Box<dyn Reporter>) -> Result<(), Error> {
+        let lockfile = LockFile::open_or_new(&self.lockfile_path)?;
+        let lockfile_graph = DependencyGraph::from_graph(lockfile.package_graph);
+
         let manifest = ProjectManifest::read_from_file(&self.manifest_path)?;
-
         let package_graph = resolver::resolve_packages(manifest.dependencies.dependencies).await?;
-        let packages = package_graph.digest();
 
-        let resolved_packages = try_join_all(
-            packages
-                .iter()
-                .rev()
-                .map(|x| async move { 
-                    Package::resolve_new(*x).await 
-                }),
-        )
-        .await?;
+        let delta = lockfile_graph.graph_delta(&package_graph);
+
+        println!("{} packages will be installed, {} will be removed.", delta.add.len(), delta.del.len());
 
         let installer = Installer::override_new();
+        let mut statefile = StateFile::open_or_new(&self.statefile_path)?;
+
+        let multi = reporter.create_progress();
+
+        let packages_del = try_join_all(
+            delta
+                .del
+                .iter()
+                .rev()
+                .map(|x| async move {
+                    Package::resolve_new(x).await
+                }),
+        ).await?;
+
+        let del_jobs = packages_del
+            .iter()
+            .map(|package| async {
+                let bar = multi.add_bar();
+                let bar = bar.as_ref();
+
+                let package_dir = package.resolve(bar).await?;
+                let tracked_files = statefile
+                    .state
+                    .get(&package.identifier)
+                    .map_or(vec![], |x| {
+                        x.linked.clone()
+                    });
+
+                installer.uninstall_package(
+                    package,
+                    &package_dir,
+                    &self.state_dir,
+                    &self.staging_dir,
+                    tracked_files.clone(),
+                    bar,
+                ).await
+            });
+
+        try_join_all(del_jobs).await?;
+
+        let resolved_packages = try_join_all(
+            delta
+                .add
+                .iter()
+                .rev()
+                .map(|x| async move {
+                    Package::resolve_new(x).await
+                }),
+        ).await?;
 
         // Download / install each package as needed.
-        let multi = reporter.create_progress();
         let jobs = resolved_packages
             .into_iter()
             .map(|package| async {
