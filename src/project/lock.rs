@@ -68,6 +68,7 @@ impl LockFile {
         let mut lockfile = OpenOptions::new()
             .create(true)
             .write(true)
+            .truncate(true)
             .open(&self.path)?;
 
         let new_contents = serde_json::to_string_pretty(&self).unwrap();
