@@ -8,22 +8,24 @@ use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
+use crate::package::install::api::TrackedFile;
 use crate::ts::package_reference::PackageReference;
 use crate::util;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StagedFile {
-    pub orig: PathBuf,
+    pub action: TrackedFile,
     pub dest: Vec<PathBuf>,
     pub md5: String,
 }
 
 impl StagedFile {
-    pub fn new(file: &Path) -> Result<Self, Error> {
+    pub fn new(action: TrackedFile) -> Result<Self, Error> {
+        let md5 = util::file::md5(&action.path)?;
         Ok(StagedFile {
-            orig: file.to_path_buf(),
+            action,
             dest: vec![],
-            md5: util::file::md5(file)?,
+            md5,
         })
     }
 
@@ -44,7 +46,7 @@ impl StagedFile {
 #[derive(Serialize, Deserialize, Default)]
 pub struct StateEntry {
     pub staged: Vec<StagedFile>,
-    pub linked: Vec<PathBuf>,
+    pub linked: Vec<TrackedFile>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -53,9 +55,10 @@ pub struct StateFile {
 }
 
 impl StateFile {
-    pub fn open(path: &Path) -> Result<Self, Error> {
+    pub fn open_or_new(path: &Path) -> Result<Self, Error> {
         if !path.is_file() {
-            Err(Error::FileNotFound(path.to_path_buf()))?;
+            let empty = StateFile::default();
+            empty.write(path)?;
         }
 
         let contents = fs::read_to_string(path)?;
