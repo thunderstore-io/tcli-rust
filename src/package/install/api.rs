@@ -12,6 +12,20 @@ pub static PROTOCOL_VERSION: Version = Version {
     patch: 0,
 };
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum FileAction {
+    Create,
+    Remove,
+    Modify,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TrackedFile {
+    pub action: FileAction,
+    pub path: PathBuf,
+    pub context: Option<String>,
+}
+
 /// Arguments are passed into the installer executable as a JSON string, not by argument
 /// name-value pairs. This means that the installer's dev can rely on JSON deserialization
 /// instead of a funky arg-parsing library.
@@ -34,7 +48,7 @@ pub enum Request {
         package_dir: PathBuf,
         state_dir: PathBuf,
         staging_dir: PathBuf,
-        tracked_files: Vec<PathBuf>,
+        tracked_files: Vec<TrackedFile>,
     },
     StartGame {
         mods_enabled: bool,
@@ -54,10 +68,10 @@ pub enum Response {
         protocol: Version,
     },
     PackageInstall {
-        tracked_files: Vec<PathBuf>,
+        tracked_files: Vec<TrackedFile>,
     },
     PackageUninstall {
-        tracked_files: Vec<PathBuf>,
+        tracked_files: Vec<TrackedFile>,
     },
     StartGame {
         pid: u32,  

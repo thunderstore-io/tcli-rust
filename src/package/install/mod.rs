@@ -8,13 +8,14 @@ use colored::Colorize;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use self::api::Request;
+use self::api::{Request, TrackedFile};
 use self::api::Response;
 use self::api::PROTOCOL_VERSION;
 use self::manifest::InstallerManifest;
 use super::{Package, PackageSource};
 use crate::ui::reporter::{Progress, VoidProgress, ProgressBarTrait};
 use crate::Error;
+use crate::error::Error::InstallerError;
 
 pub mod api;
 mod legacy_compat;
@@ -107,7 +108,7 @@ impl Installer {
         state_dir: &Path, 
         staging_dir: &Path, 
         reporter: &dyn ProgressBarTrait
-    ) -> Result<Vec<PathBuf>, Error> {  
+    ) -> Result<Vec<TrackedFile>, Error> {  
         // Determine if the package is a modloader or not.
         let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
                 

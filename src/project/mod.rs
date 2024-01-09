@@ -14,6 +14,7 @@ use self::lock::LockFile;
 use crate::error::{Error, IoResultToTcli};
 use crate::game::registry;
 use crate::package::install::Installer;
+use crate::package::install::api::TrackedFile;
 use crate::package::{resolver, Package};
 use crate::project::manifest::ProjectManifest;
 use crate::project::overrides::ProjectOverrides;
@@ -267,21 +268,20 @@ impl Project {
 
         let tracked_files = try_join_all(jobs).await?
             .into_iter()
-            .collect::<Vec<(PackageReference, Vec<PathBuf>)>>();
+            .collect::<Vec<(PackageReference, Vec<TrackedFile>)>>();
 
         // Iterate through each installed mod, separate tracked files into "link" and "stage" variants.
         // TODO: Make this less hacky, we shouldn't be relying on path ops to determine this.
-        let mut statefile = StateFile::open(&self.statefile_path)?;
         for (package, tracked_files) in tracked_files {
             let staged_files = tracked_files
                 .iter()
-                .filter(|x| x.starts_with(&self.staging_dir))
-                .map(|x| StagedFile::new(&x))
+                .filter(|x| x.path.starts_with(&self.staging_dir))
+                .map(|x| StagedFile::new(x.clone()))
                 .collect::<Result<Vec<_>, _>>()?;
 
             let linked_files = tracked_files
                 .into_iter()
-                .filter(|x| x.starts_with(&self.state_dir));
+                .filter(|x| x.path.starts_with(&self.state_dir));
 
             let group = statefile.state.entry(package).or_insert(StateEntry::default());
             group.staged.extend(staged_files);
@@ -290,10 +290,9 @@ impl Project {
 
         statefile.write(&self.statefile_path)?;
 
-        // For now we can regenerate the lockfile from scratch.
-        // let mut lockfile = LockFile::open_or_new(&self.lockfile_path)?;
-        // lockfile.merge(&resolved_packages);
-        // lockfile.commit()?;
+        LockFile::open_or_new(&self.lockfile_path)?
+            .with_graph(package_graph)
+            .commit()?;
 
         Ok(())
     }
@@ -312,7 +311,7 @@ impl Project {
             .flat_map(|x| &mut x.staged);
 
         for file in staged_files {
-            let rel = file.orig.strip_prefix(&self.staging_dir).unwrap();
+            let rel = file.action.path.strip_prefix(&self.staging_dir).unwrap();
             let dest = game_dir.join(rel);
 
             if file.is_same_as(&dest)? {
@@ -324,7 +323,7 @@ impl Project {
                 fs::create_dir_all(dest_parent)?;
             }
 
-            fs::copy(&file.orig, &dest)?;
+            fs::copy(&file.action.path, &dest)?;
             file.dest.push(dest);
         }
 
