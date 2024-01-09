@@ -16,7 +16,8 @@ use crate::game::registry;
 use crate::package::install::Installer;
 use crate::package::install::api::TrackedFile;
 use crate::package::{resolver, Package};
-use crate::project::manifest::ProjectManifest;
+use crate::package::resolver::DependencyGraph;
+use crate::project::manifest::{DependencyData, ProjectManifest};
 use crate::project::overrides::ProjectOverrides;
 use crate::project::state::{StagedFile, StateEntry, StateFile};
 use crate::ts::package_manifest::PackageManifestV1;
@@ -203,6 +204,26 @@ impl Project {
         manifest.write_to_file(&self.manifest_path)?;
 
         Ok(())
+    }
+
+    /// Remove one or more packages from this project.
+    /// 
+    /// Similar to add_packages, this function does not commit changes to the project.
+    pub fn remove_packages(&self, packages: &[PackageReference]) -> Result<(), Error> {
+        let mut manifest = ProjectManifest::read_from_file(&self.manifest_path)?;
+        let manifest_deps = &mut manifest.dependencies.dependencies;
+
+        for package in packages {
+            let remove_index = manifest_deps.iter().position(|x| x == package);
+
+            if let Some(x) = remove_index {
+                manifest_deps.remove(x);
+            } else {
+                println!("Project manifest does not include package '{package}', skipping.");
+            }
+        }
+
+        manifest.write_to_file(&self.manifest_path)
     }
 
     /// Commit changes made to the project manifest to the project.
