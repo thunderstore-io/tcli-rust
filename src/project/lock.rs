@@ -33,11 +33,13 @@ impl LockFile {
                 ..lockfile
             })
         } else {
+            let graph = DependencyGraph::new();
+
             Ok(LockFile {
                 path: path.to_path_buf(),
                 version: 1,
                 graph_hash: String::default(),
-                package_graph: InnerDepGraph::default(),
+                package_graph: graph.into_inner(),
             })
         }
     }
