@@ -32,7 +32,7 @@ impl PackageReference {
         fullname: impl AsRef<str>,
         version: Version,
     ) -> Result<Self, PackageReferenceParseError> {
-        let (name, namespace) =
+        let (namespace, name) =
             fullname
                 .as_ref()
                 .rsplit_once('-')
