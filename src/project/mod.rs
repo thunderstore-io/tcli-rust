@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
@@ -6,22 +7,24 @@ use std::path::{Path, PathBuf};
 
 use colored::Colorize;
 use futures::future::try_join_all;
+use futures_util::SinkExt;
 pub use publish::publish;
 use zip::write::FileOptions;
 
 use self::lock::LockFile;
 use crate::error::{Error, IoResultToTcli};
 use crate::game::registry;
+use crate::package::install::api::{FileAction, TrackedFile};
 use crate::package::install::Installer;
-use crate::package::install::api::TrackedFile;
-use crate::package::{resolver, Package};
 use crate::package::resolver::DependencyGraph;
+use crate::package::{resolver, Package};
 use crate::project::manifest::ProjectManifest;
 use crate::project::overrides::ProjectOverrides;
 use crate::project::state::{StagedFile, StateEntry, StateFile};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
-use crate::ui::reporter::Reporter;
+use crate::ui::reporter::{Progress, Reporter};
+use crate::util;
 
 pub mod lock;
 pub mod manifest;
@@ -113,7 +116,10 @@ impl Project {
         fs::create_dir_all(&staging_dir)?;
 
         let statefile_path = project_dir.join(".tcli/state.json");
-        fs::write(&statefile_path, serde_json::to_string_pretty(&StateFile::default())?)?;
+        fs::write(
+            &statefile_path,
+            serde_json::to_string_pretty(&StateFile::default())?,
+        )?;
 
         let project = Project {
             base_dir: project_dir.to_path_buf(),
@@ -206,7 +212,7 @@ impl Project {
     }
 
     /// Remove one or more packages from this project.
-    /// 
+    ///
     /// Similar to add_packages, this function does not commit changes to the project.
     pub fn remove_packages(&self, packages: &[PackageReference]) -> Result<(), Error> {
         let mut manifest = ProjectManifest::read_from_file(&self.manifest_path)?;
@@ -225,111 +231,62 @@ impl Project {
         manifest.write_to_file(&self.manifest_path)
     }
 
-    /// Commit changes made to the project manifest to the project.
-    pub async fn commit(&self, reporter: Box<dyn Reporter>) -> Result<(), Error> {
-        let lockfile = LockFile::open_or_new(&self.lockfile_path)?;
-        let lockfile_graph = DependencyGraph::from_graph(lockfile.package_graph);
+    async fn install_packages(
+        &self,
+        installer: &Installer,
+        statefile: &mut StateFile,
+        packages: Vec<&PackageReference>,
+        multi: &dyn Progress,
+    ) -> Result<(), Error> {
+        let packages = try_join_all(
+            packages
+                .into_iter()
+                .map(|x| async move { Package::resolve_new(x).await }),
+        )
+        .await?;
 
-        let manifest = ProjectManifest::read_from_file(&self.manifest_path)?;
-        let package_graph = resolver::resolve_packages(manifest.dependencies.dependencies).await?;
+        let jobs = packages.into_iter().map(|package| async {
+            let bar = multi.add_bar();
+            let bar = bar.as_ref();
 
-        let delta = lockfile_graph.graph_delta(&package_graph);
-
-        println!("{} packages will be installed, {} will be removed.", delta.add.len(), delta.del.len());
-
-        let installer = Installer::override_new();
-        let mut statefile = StateFile::open_or_new(&self.statefile_path)?;
-
-        let multi = reporter.create_progress();
-
-        let packages_del = try_join_all(
-            delta
-                .del
-                .iter()
-                .rev()
-                .map(|x| async move {
-                    Package::resolve_new(x).await
-                }),
-        ).await?;
-
-        let del_jobs = packages_del
-            .iter()
-            .map(|package| async {
-                let bar = multi.add_bar();
-                let bar = bar.as_ref();
-
-                let package_dir = package.resolve(bar).await?;
-                let tracked_files = statefile
-                    .state
-                    .get(&package.identifier)
-                    .map_or(vec![], |x| {
-                        x.linked.clone()
-                    });
-
-                installer.uninstall_package(
-                    package,
+            // Resolve the package, either downloading it or returning its cached path.
+            let package_dir = package.resolve(bar).await?;
+            let tracked_files = installer
+                .install_package(
+                    &package,
                     &package_dir,
                     &self.state_dir,
                     &self.staging_dir,
-                    tracked_files.clone(),
                     bar,
-                ).await
-            });
+                )
+                .await;
 
-        try_join_all(del_jobs).await?;
+            let finished_msg = match tracked_files {
+                Ok(_) => format!(
+                    "{} Installed {}-{} {}",
+                    "[✓]".green(),
+                    package.identifier.namespace.bold(),
+                    package.identifier.name.bold(),
+                    package.identifier.version.to_string().truecolor(90, 90, 90)
+                ),
+                Err(ref e) => format!(
+                    "{} Error {}-{} {}\n\t{}",
+                    "[x]".red(),
+                    package.identifier.namespace.bold(),
+                    package.identifier.name.bold(),
+                    package.identifier.version.to_string().truecolor(90, 90, 90),
+                    e,
+                ),
+            };
 
-        let resolved_packages = try_join_all(
-            delta
-                .add
-                .iter()
-                .rev()
-                .map(|x| async move {
-                    Package::resolve_new(x).await
-                }),
-        ).await?;
+            bar.println(&finished_msg);
+            bar.finish_and_clear();
 
-        // Download / install each package as needed.
-        let jobs = resolved_packages
-            .into_iter()
-            .map(|package| async {
-                let bar = multi.add_bar();
-                let bar = bar.as_ref();
+            tracked_files.map(|x| (package.identifier, x))
+        });
 
-                // Resolve the package, either downloading it or returning its cached path.
-                let package_dir = package.resolve(bar).await?;
-                let tracked_files = installer.install_package(
-                    &package,
-                    &package_dir, 
-                    &self.state_dir,
-                    &self.staging_dir,
-                    bar
-                ).await;
-
-                let finished_msg = match tracked_files {
-                    Ok(_) => format!(
-                        "{} Installed {}-{} {}",
-                        "[✓]".green(),
-                        package.identifier.namespace.bold(),
-                        package.identifier.name.bold(),
-                        package.identifier.version.to_string().truecolor(90, 90, 90)
-                    ),
-                    Err(ref e) => format!(
-                        "{} Error {}-{} {}\n\t{}",
-                        "[x]".red(),
-                        package.identifier.namespace.bold(),
-                        package.identifier.name.bold(),
-                        package.identifier.version.to_string().truecolor(90, 90, 90),
-                        e,
-                    ),
-                };
-
-                bar.println(&finished_msg);
-                bar.finish_and_clear();
-
-                tracked_files.map(|x| (package.identifier, x))
-            });
-
-        let tracked_files = try_join_all(jobs).await?
+        let tracked_files = try_join_all(jobs)
+            .await?
             .into_iter()
             .collect::<Vec<(PackageReference, Vec<TrackedFile>)>>();
 
@@ -346,11 +303,132 @@ impl Project {
                 .into_iter()
                 .filter(|x| x.path.starts_with(&self.state_dir));
 
-            let group = statefile.state.entry(package).or_insert(StateEntry::default());
+            let group = statefile.state.entry(package).or_default();
             group.staged.extend(staged_files);
             group.linked.extend(linked_files);
         }
 
+        Ok(())
+    }
+
+    async fn uninstall_packages(
+        &self,
+        installer: &Installer,
+        statefile: &mut StateFile,
+        packages: Vec<&PackageReference>,
+        multi: &dyn Progress,
+    ) -> Result<(), Error> {
+        let packages = try_join_all(
+            packages
+                .into_iter()
+                .map(|x| async move { Package::resolve_new(x).await }),
+        )
+        .await?;
+
+        // Uninstall each package in parallel.
+        try_join_all(packages.iter().map(|package| async {
+            let bar = multi.add_bar();
+            let bar = bar.as_ref();
+
+            let package_dir = package.resolve(bar).await?;
+            let state_entry = statefile.state.get(&package.identifier);
+
+            let tracked_files = state_entry
+                .map_or(vec![], |x| x.staged.clone())
+                .into_iter()
+                .map(|x| x.action)
+                .chain(state_entry.map_or(vec![], |x| x.linked.clone()))
+                .collect::<Vec<_>>();
+
+            installer
+                .uninstall_package(
+                    package,
+                    &package_dir,
+                    &self.state_dir,
+                    &self.staging_dir,
+                    tracked_files,
+                    bar,
+                )
+                .await
+        }))
+        .await?;
+
+        // Run post-uninstall cleanup / validation ops.
+        // 1. Invalidate staged files, removing them from the statefile if they no longer exist.
+        // 2. Cleanup empty directories within staging and state.
+        // 3. Remove uninstalled / invalidated entries from the statefile.
+        for package in packages {
+            let entry = statefile.state.get(&package.identifier).unwrap();
+            let staged = &entry.staged;
+
+            // Determine the list of entries that will be invalidated.
+            let invalid_staged_entries = staged
+                .iter()
+                .filter(|x| !x.action.path.is_file());
+
+            for staged_entry in invalid_staged_entries {
+                // Each dest is checked if it (a) exists and (b) is the same as orig.
+                let dests_to_remove = staged_entry
+                    .dest
+                    .iter()
+                    .filter_map(|path| match staged_entry.is_same_as(path) {
+                        Ok(x) if x => Some(Ok(path)),
+                        Ok(_) => None,
+                        Err(e) => Some(Err(e)),
+                    });
+
+                for dest in dests_to_remove {
+                    fs::remove_file(dest?)?;
+                }
+            }
+
+            statefile.state.remove(&package.identifier);
+        }
+
+        // Cleanup empty directories in the state and staging dirs.
+        util::file::remove_empty_dirs(&self.state_dir, false)?;
+        util::file::remove_empty_dirs(&self.staging_dir, false)?;
+
+        Ok(())
+    }
+
+    /// Commit changes made to the project manifest to the project.
+    pub async fn commit(&self, reporter: Box<dyn Reporter>) -> Result<(), Error> {
+        let lockfile = LockFile::open_or_new(&self.lockfile_path)?;
+        let lockfile_graph = DependencyGraph::from_graph(lockfile.package_graph);
+
+        let manifest = ProjectManifest::read_from_file(&self.manifest_path)?;
+        let package_graph = resolver::resolve_packages(manifest.dependencies.dependencies).await?;
+
+        // Compare the lockfile and new graphs to determine the
+        let delta = lockfile_graph.graph_delta(&package_graph);
+
+        println!(
+            "{} packages will be installed, {} will be removed.",
+            delta.add.len(),
+            delta.del.len()
+        );
+
+        let installer = Installer::override_new();
+        let mut statefile = StateFile::open_or_new(&self.statefile_path)?;
+
+        let multi = reporter.create_progress();
+
+        let packages_to_remove = delta.del.iter().rev().collect::<Vec<_>>();
+        let packages_to_add = delta.add.iter().rev().collect::<Vec<_>>();
+
+        self.uninstall_packages(
+            &installer,
+            &mut statefile,
+            packages_to_remove,
+            multi.borrow(),
+        )
+        .await?;
+
+        self.install_packages(&installer, &mut statefile, packages_to_add, multi.borrow())
+            .await?;
+
+        // Write the statefile with changes made during unins
         statefile.write(&self.statefile_path)?;
 
         LockFile::open_or_new(&self.lockfile_path)?
@@ -360,7 +438,12 @@ impl Project {
         Ok(())
     }
 
-    pub async fn start_game(&self, game_id: &str, mods_enabled: bool, args: Vec<String>) -> Result<(), Error> {
+    pub async fn start_game(
+        &self,
+        game_id: &str,
+        mods_enabled: bool,
+        args: Vec<String>,
+    ) -> Result<(), Error> {
         let game_data = registry::get_game_data(&self.game_registry_path, game_id)
             .ok_or_else(|| Error::InvalidGameId(game_id.to_string()))?;
         let game_dist = game_data.active_distribution;
@@ -368,10 +451,7 @@ impl Project {
 
         // Copy the contents of staging into the game directory.
         let mut statefile = StateFile::open_or_new(&self.statefile_path)?;
-        let staged_files = statefile
-            .state
-            .values_mut()
-            .flat_map(|x| &mut x.staged);
+        let staged_files = statefile.state.values_mut().flat_map(|x| &mut x.staged);
 
         for file in staged_files {
             let rel = file.action.path.strip_prefix(&self.staging_dir).unwrap();
@@ -393,22 +473,31 @@ impl Project {
         statefile.write(&self.statefile_path)?;
 
         let installer = Installer::override_new();
-        let pid = installer.start_game(
-            mods_enabled,
-            &self.state_dir,
-            &game_dist.game_dir,
-            &game_dist.exe_path,
-            args,
-        ).await?;
-        
+        let pid = installer
+            .start_game(
+                mods_enabled,
+                &self.state_dir,
+                &game_dist.game_dir,
+                &game_dist.exe_path,
+                args,
+            )
+            .await?;
+
         // The PID file is contained within the state dir and is of name `game.exe.pid`.
         let game_name = game_dist.exe_path.file_name().unwrap().to_string_lossy();
-        let pid_path = self.base_dir.join(".tcli").join(format!("{}.pid", game_name));
+        let pid_path = self
+            .base_dir
+            .join(".tcli")
+            .join(format!("{}.pid", game_name));
 
         let mut pid_file = File::create(pid_path)?;
         pid_file.write_all(format!("{}", pid).as_bytes())?;
 
-        println!("{} has been started with PID {}.", game_data.display_name.green(), pid);
+        println!(
+            "{} has been started with PID {}.",
+            game_data.display_name.green(),
+            pid
+        );
 
         Ok(())
     }
@@ -523,3 +612,4 @@ impl Project {
         LockFile::open_or_new(&self.lockfile_path)
     }
 }
+

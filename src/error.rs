@@ -17,6 +17,9 @@ pub enum Error {
     #[error("The file at {0} does not exist or is otherwise not accessible.")]
     FileNotFound(PathBuf),
 
+    #[error("The directory at {0} does not exist or is otherwise not accessible.")]
+    DirectoryNotFound(PathBuf),
+
     #[error("A network error occurred while sending an API request.")]
     NetworkError(#[from] reqwest::Error),
 
