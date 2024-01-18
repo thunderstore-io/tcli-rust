@@ -222,6 +222,16 @@ pub enum Commands {
         trailing_args: Vec<String>,
     },
 
+    /// Stop a running game process.
+    Stop {
+        /// The identifier or PID of the game process to stop.
+        id: String,
+
+        // Path of the project configuration file.
+        #[clap(long, default_value = DEFAULT_MANIFEST)]
+        project_path: PathBuf,
+    },
+
     /// List configured games, profiles, and mods.
     List {
         #[clap(subcommand)]

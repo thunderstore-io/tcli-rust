@@ -96,6 +96,9 @@ pub enum Error {
 
     #[error("The installer returned an error:\n\t{message}")]
     InstallerError { message: String },
+
+    #[error("The provided game id '{0}' does not exist or has not been imported into this profile.")]
+    BadGameId(String)
 }
 
 pub trait IoResultToTcli<R> {

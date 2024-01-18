@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 
 use clap::Parser;
 use cli::InitSubcommand;
@@ -195,6 +195,23 @@ async fn main() -> Result<(), Error> {
                 args,
             ).await?;
 
+            Ok(())
+        }
+
+        Commands::Stop {
+            id,
+            project_path,
+        } => {
+            match id.parse::<usize>() {
+                Ok(x) => {
+                    game::proc::kill(x);
+                },
+                Err(_) => {
+                    let project = Project::open(&project_path)?;
+                    project.stop_game(&id)?;
+                }
+            };
+            
             Ok(())
         }
         

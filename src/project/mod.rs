@@ -13,7 +13,7 @@ use zip::write::FileOptions;
 
 use self::lock::LockFile;
 use crate::error::{Error, IoResultToTcli};
-use crate::game::registry;
+use crate::game::{proc, registry};
 use crate::package::install::api::{FileAction, TrackedFile};
 use crate::package::install::Installer;
 use crate::package::resolver::DependencyGraph;
@@ -51,8 +51,7 @@ impl Project {
     pub fn open(project_dir: &Path) -> Result<Self, Error> {
         // TODO: Validate that the following paths exist.
         let project_dir = project_dir.canonicalize()?;
-
-        Ok(Project {
+        let project = Project {
             base_dir: project_dir.to_path_buf(),
             state_dir: project_dir.join(".tcli/project_state"),
             staging_dir: project_dir.join(".tcli/staging"),
@@ -60,7 +59,24 @@ impl Project {
             lockfile_path: project_dir.join("Thunderstore.lock"),
             game_registry_path: project_dir.join(".tcli/game_registry.json"),
             statefile_path: project_dir.join(".tcli/state.json"),
-        })
+        };
+
+        let pid_files = proc::get_pid_files(&project_dir.join(".tcli"))?;
+        let pid_files = pid_files
+            .iter()
+            .filter_map(|x| fs::read_to_string(x).map(|inner| (x, inner)).ok())
+            .filter(|(_, x)| {
+                let as_usize = x.parse::<usize>().unwrap();
+                !proc::is_running(as_usize)
+            })
+            .map(|(path, _)| path);
+
+        // Delete each invalid PID.
+        for pid_file in pid_files {
+            fs::remove_file(pid_file)?;
+        }     
+
+        Ok(project)
     }
 
     /// Create a new project within the given directory.
@@ -484,11 +500,10 @@ impl Project {
             .await?;
 
         // The PID file is contained within the state dir and is of name `game.exe.pid`.
-        let game_name = game_dist.exe_path.file_name().unwrap().to_string_lossy();
         let pid_path = self
             .base_dir
             .join(".tcli")
-            .join(format!("{}.pid", game_name));
+            .join(format!("{}.pid", game_data.identifier));
 
         let mut pid_file = File::create(pid_path)?;
         pid_file.write_all(format!("{}", pid).as_bytes())?;
@@ -498,6 +513,25 @@ impl Project {
             game_data.display_name.green(),
             pid
         );
+
+        Ok(())
+    }
+
+    pub fn stop_game(&self, game_id: &str) -> Result<(), Error> {
+        let game_data = registry::get_game_data(&self.game_registry_path, game_id)
+            .ok_or_else(|| Error::BadGameId(game_id.to_string()))?;
+
+        let mut pid_file = self.base_dir.join(".tcli").join(game_data.identifier);
+        pid_file.set_extension("pid");
+
+        if !pid_file.is_file() {
+            Err(Error::FileNotFound(pid_file.clone()))?;
+        }
+
+        let pid = fs::read_to_string(&pid_file)?.parse::<usize>().unwrap();
+
+        proc::kill(pid);
+        fs::remove_file(pid_file)?;
 
         Ok(())
     }
