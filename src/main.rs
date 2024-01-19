@@ -1,4 +1,6 @@
-use std::path::{PathBuf, Path};
+#![allow(dead_code)]
+
+use std::path::PathBuf;
 
 use clap::Parser;
 use cli::InitSubcommand;
@@ -13,7 +15,6 @@ use crate::config::Vars;
 use crate::error::Error;
 use crate::game::registry::GameImportBuilder;
 use crate::game::{ecosystem, registry};
-use crate::package::install::Installer;
 use crate::package::resolver::DependencyGraph;
 use crate::project::lock::LockFile;
 use crate::project::overrides::ProjectOverrides;
@@ -158,8 +159,8 @@ async fn main() -> Result<(), Error> {
             custom_id,
             custom_name,
             exe_path,
-            tcli_directory,
-            repository,
+            tcli_directory: _,
+            repository: _,
             project_path,
         } => {
             ts::init_repository("https://thunderstore.io", None);
@@ -178,8 +179,8 @@ async fn main() -> Result<(), Error> {
             game_id, 
             vanilla, 
             args, 
-            tcli_directory, 
-            repository, 
+            tcli_directory: _, 
+            repository: _, 
             project_path, 
             trailing_args
         } => {
@@ -247,7 +248,7 @@ async fn main() -> Result<(), Error> {
             Ok(())
         }
         Commands::List { command } => match command {
-            ListSubcommand::Platforms { target, detected } => {
+            ListSubcommand::Platforms { target, detected: _ } => {
                 let platforms = registry::get_supported_platforms(&target);
 
                 println!("TCLI supports the following platforms on {target}");
@@ -312,7 +313,5 @@ async fn main() -> Result<(), Error> {
                 Ok(())
             }
         },
-        _ => todo!("other commands"),
     }
 }
-

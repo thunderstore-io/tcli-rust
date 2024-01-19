@@ -7,20 +7,19 @@ use std::path::{Path, PathBuf};
 
 use colored::Colorize;
 use futures::future::try_join_all;
-use futures_util::SinkExt;
 pub use publish::publish;
 use zip::write::FileOptions;
 
 use self::lock::LockFile;
 use crate::error::{Error, IoResultToTcli};
 use crate::game::{proc, registry};
-use crate::package::install::api::{FileAction, TrackedFile};
+use crate::package::install::api::TrackedFile;
 use crate::package::install::Installer;
 use crate::package::resolver::DependencyGraph;
 use crate::package::{resolver, Package};
 use crate::project::manifest::ProjectManifest;
 use crate::project::overrides::ProjectOverrides;
-use crate::project::state::{StagedFile, StateEntry, StateFile};
+use crate::project::state::{StagedFile, StateFile};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
 use crate::ui::reporter::{Progress, Reporter};
@@ -133,7 +132,7 @@ impl Project {
 
         let statefile_path = project_dir.join(".tcli/state.json");
         fs::write(
-            &statefile_path,
+            statefile_path,
             serde_json::to_string_pretty(&StateFile::default())?,
         )?;
 

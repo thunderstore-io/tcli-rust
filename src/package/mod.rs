@@ -19,7 +19,7 @@ use crate::ts::experimental::package;
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::CLIENT;
-use crate::ui::reporter::{Progress, ProgressBarTrait};
+use crate::ui::reporter::ProgressBarTrait;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum PackageSource {
@@ -55,7 +55,7 @@ impl Package {
     pub async fn from_cache(ident: impl Borrow<PackageReference>) -> Result<Self, Error> {
         let ident = ident.borrow();
 
-        let path = cache::get_cache_location(&ident);
+        let path = cache::get_cache_location(ident);
         let manifest_path = path.join("manifest.json");
 
         let mut manifest_str = String::new();
@@ -84,7 +84,7 @@ impl Package {
                 );
 
                 let mut package = Package::from_repo(ident).await?;
-                package.source = PackageSource::Cache(path.into());
+                package.source = PackageSource::Cache(path);
 
                 Ok(package)
             }

@@ -39,7 +39,7 @@ pub async fn installer_from_graph(
     let loader = dependencies
         .into_iter()
         .find_map(|package| installer_map.get(&package.to_loose_ident_string()))
-        .map_or(None, |x| Some(x.clone()));
+        .cloned();
 
     Ok(loader)
 }
@@ -56,8 +56,7 @@ async fn init_installer_map() -> Result<HashMap<String, String>, Error> {
         .games
         .into_iter()
         .filter_map(|(_, def)| def.r2modman)
-        .map(|def| def.mod_loader_packages)
-        .flatten()
+        .flat_map(|def| def.mod_loader_packages)
         .filter_map(|loader| match map.get(loader.loader.as_str()) {
             Some(installer) => Some((loader.package_id, installer.to_string())),
             None => None,

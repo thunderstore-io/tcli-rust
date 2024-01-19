@@ -15,7 +15,7 @@ pub async fn get_temp_zip_file(
 ) -> Result<TempFile<tokio::fs::File>, Error> {
     fs::create_dir_all(CACHE_LOCATION.as_path()).map_fs_error(CACHE_LOCATION.as_path())?;
     let path = CACHE_LOCATION.join(format!("{package}.zip.tmp"));
-    Ok(TempFile::open_async(path).await?)
+    TempFile::open_async(path).await
 }
 
 pub fn get_cache_location(package: &PackageReference) -> PathBuf {

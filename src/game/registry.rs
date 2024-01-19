@@ -152,7 +152,7 @@ impl GameImportBuilder {
         write_data(game_registry, data)
     }
 
-    pub fn as_steam(self) -> SteamImportBuilder {
+    pub fn into_steam(self) -> SteamImportBuilder {
         SteamImportBuilder {
             game_def: self.game_def,
         }
@@ -164,7 +164,7 @@ pub struct SteamImportBuilder {
 }
 
 impl SteamImportBuilder {
-    pub fn with_steam_dir(self, steam_dir: &Path) -> Self {
+    pub fn with_steam_dir(self, _steam_dir: &Path) -> Self {
         todo!()
     }
 
@@ -204,10 +204,10 @@ fn write_data(game_registry: &Path, data: GameData) -> Result<(), Error> {
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
-        .open(&game_registry)?;
+        .open(game_registry)?;
 
     let mut game_registry: Vec<GameData> = {
-        let contents = fs::read_to_string(&game_registry)?;
+        let contents = fs::read_to_string(game_registry)?;
 
         if contents.is_empty() {
             Vec::new()

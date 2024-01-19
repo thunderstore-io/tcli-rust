@@ -1,6 +1,5 @@
 use std::env;
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
 use std::path::{PathBuf, Path};
 use std::process::Stdio;
 
@@ -12,10 +11,9 @@ use self::api::{Request, TrackedFile};
 use self::api::Response;
 use self::api::PROTOCOL_VERSION;
 use self::manifest::InstallerManifest;
-use super::{Package, PackageSource};
+use super::Package;
 use crate::ui::reporter::{Progress, VoidProgress, ProgressBarTrait};
 use crate::Error;
-use crate::error::Error::InstallerError;
 
 pub mod api;
 mod legacy_compat;
@@ -69,7 +67,7 @@ impl Installer {
 
         // Validate that the installer is (a) executable and (b) is using a valid protocol version.
         let response = installer.run(&Request::Version).await?;
-        let Response::Version { author, identifier, protocol } = response else {
+        let Response::Version { author: _, identifier: _, protocol } = response else {
             Err(Error::InstallerBadResponse {
                 package_id: package.identifier.to_string(),
                 message: "The installer did not respond with a valid or otherwise serializable Version response variant.".to_string(),

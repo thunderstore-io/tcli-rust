@@ -39,7 +39,7 @@ pub fn remove_schema() -> Result<(), Error> {
     }
 
     let schema = TCLI_HOME.join("ecosystem_schema.json");
-    fs::remove_file(&schema)?;
+    fs::remove_file(schema)?;
 
     Ok(())
 }

@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use md5::digest::FixedOutput;
-use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
@@ -36,10 +34,6 @@ impl StagedFile {
 
         let other_md5 = util::file::md5(other)?;
         Ok(self.md5 == other_md5)
-    }
-
-    pub fn copy_to(&mut self, dest: &Path) -> Result<(), Error> {
-        Ok(())
     }
 }
 

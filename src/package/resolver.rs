@@ -1,13 +1,10 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::rc::Rc;
+use std::collections::{HashMap, VecDeque};
 
 use petgraph::prelude::{DfsPostOrder, NodeIndex};
 use petgraph::{algo, Directed, Graph};
-use serde::Serialize;
 
-use crate::ts;
 use crate::error::Error;
-use crate::package::index::{self, PackageIndex};
+use crate::package::index::PackageIndex;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::version::Version;
 
@@ -93,7 +90,7 @@ impl DependencyGraph {
         let loose = value.to_loose_ident_string();
         let node_index = self.index.get(&loose);
 
-        if let None = node_index {
+        if node_index.is_none() {
             return false;
         }
 
@@ -235,7 +232,7 @@ pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<Depende
     while let Some(package_ident) = iter_queue.pop_front() {
         let package = package_index
             .get_package(package_ident)
-            .expect(&format!("{} does not exist in the index.", package_ident));
+            .unwrap_or_else(|| panic!("{} does not exist in the index.", package_ident));
 
         // Add the package to the dependency graph.
         graph.add(package_ident.clone());

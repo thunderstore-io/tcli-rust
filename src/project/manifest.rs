@@ -196,7 +196,7 @@ impl Default for PublishData {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct DependencyData {
     #[serde(default)]
     #[serde(with = "package_reference::ser::table")]
@@ -207,13 +207,4 @@ pub struct DependencyData {
     #[serde(with = "package_reference::ser::table")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub dev_dependencies: Vec<PackageReference>,
-}
-
-impl Default for DependencyData {
-    fn default() -> Self {
-        DependencyData {
-            dependencies: vec![],
-            dev_dependencies: vec![],
-        }
-    }
 }
