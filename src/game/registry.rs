@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{ecosystem, steam};
 use crate::error::Error;
-use crate::project::ProjectPath;
 use crate::ts::v1::models::ecosystem::{GameDef, GameDefPlatform};
 use crate::util::os::OS;
 

@@ -12,7 +12,7 @@ use crate::package::install::api::TrackedFile;
 use crate::ts::package_reference::PackageReference;
 use crate::util;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StagedFile {
     pub action: TrackedFile,
     pub dest: Vec<PathBuf>,
