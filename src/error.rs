@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use async_trait::async_trait;
-
 use crate::ts::version::Version;
 
 #[allow(clippy::enum_variant_names)]
@@ -111,12 +109,10 @@ impl<R> IoResultToTcli<R> for Result<R, std::io::Error> {
     }
 }
 
-#[async_trait]
 pub trait ReqwestToTcli: Sized {
     async fn error_for_status_tcli(self) -> Result<Self, Error>;
 }
 
-#[async_trait]
 impl ReqwestToTcli for reqwest::Response {
     async fn error_for_status_tcli(self) -> Result<Self, Error> {
         match self.error_for_status_ref() {
