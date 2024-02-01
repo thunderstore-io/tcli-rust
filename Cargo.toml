@@ -21,7 +21,6 @@ futures = "0.3"
 futures-util = "0.3"
 tokio = { version = "1.34", features = ["macros", "process", "rt-multi-thread"]}
 tokio-util = { version = "0.7", features = ["io"] }
-async-trait = "0.1"
 async-compression = { version = "0.4", features = ["futures-io", "gzip"] }
 
 # parsers, serializations, and other data processing
