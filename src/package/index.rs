@@ -4,6 +4,9 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 
+use async_compression::futures::bufread::GzipEncoder;
+use futures_util::io::BufReader;
+use futures_util::StreamExt;
 use once_cell::sync::Lazy;
 
 use crate::error::Error;
@@ -77,16 +80,60 @@ impl PackageIndex {
 
 /// Syncronizes the local TCLI cache with the remote repository.
 pub async fn sync_index() -> Result<(), Error> {
-    let entries = experimental::index::get_index().await?;
-    let index_json = serde_json::to_string_pretty(&entries)?;
+    // let entries = experimental::index::get_index().await?;
+    let mut index_stream = experimental::index::get_index_streamed().await?;
+    let start = std::time::Instant::now();
 
-    let mut index_file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(INDEX_PATH.as_path())?;
+    while let Some(Ok(entry)) = index_stream.next().await {
+        let dest_dir = INDEX_PATH.parent().unwrap().join("package_index");
 
-    index_file.write_all(index_json.as_bytes())?;
+        let author_char = entry.namespace
+            .chars()
+            .next()
+            .unwrap()
+            .to_lowercase()
+            .to_string()
+            .replace('.', "%2E");
+        let name_char = entry.name
+            .chars()
+            .next()
+            .unwrap()
+            .to_lowercase()
+            .to_string()
+            .replace('.', "%2E");
+
+        let dest_dir = dest_dir
+            .join(author_char)
+            .join(name_char);
+
+        let dest_file = dest_dir.join(format!("{}-{}.json", entry.namespace, entry.name));
+
+        // println!("dest: {dest_file:?}");
+
+        if !dest_dir.is_dir() {
+            tokio::fs::create_dir_all(&dest_dir).await?;
+        }
+
+        let ser = serde_json::to_string_pretty(&entry)?;
+        let mut outfile = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(dest_file)?;
+
+        outfile.write_all(ser.as_bytes())?;
+    }
+
+    println!("done in {} seconds", start.elapsed().as_secs());
+
+    // let index_json = serde_json::to_string_pretty(&entries)?;
+
+    // let mut index_file = OpenOptions::new()
+    //     .create(true)
+    //     .write(true)
+    //     .truncate(true)
+    //     .open(INDEX_PATH.as_path())?;
+
+    // index_file.write_all(index_json.as_bytes())?;
 
     Ok(())
 }
