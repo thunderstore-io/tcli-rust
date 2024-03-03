@@ -6,15 +6,14 @@ pub mod steam;
 
 use std::path::{Path, PathBuf};
 
+use super::registry::{ActiveDistribution, GameData};
 use crate::game::import::ea::EaImporter;
 use crate::game::import::egs::EgsImporter;
 use crate::game::import::gamepass::GamepassImporter;
 use crate::game::import::steam::SteamImporter;
-use crate::ts::v1::{ecosystem, models::ecosystem::GameDefPlatform};
 use crate::ts::v1::models::ecosystem::GameDef;
+use crate::ts::v1::{ecosystem, models::ecosystem::GameDefPlatform};
 use crate::util::reg;
-
-use super::registry::{ActiveDistribution, GameData};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -87,10 +86,7 @@ impl ImportBase {
     }
 
     pub fn with_overrides(self, overrides: ImportOverrides) -> Self {
-        ImportBase {
-            overrides,
-            ..self
-        }
+        ImportBase { overrides, ..self }
     }
 
     pub fn with_wine_prefix(self, wine_prefix: Option<String>) -> Self {
@@ -102,16 +98,25 @@ impl ImportBase {
 }
 
 pub fn select_importer(base: &ImportBase) -> Result<Box<dyn GameImporter>, Error> {
-    base
-        .game_def
+    base.game_def
         .distributions
         .iter()
         .find_map(|dist| match dist {
-            GameDefPlatform::Origin { identifier } => Some(Box::new(EaImporter::new(identifier)) as _),
-            GameDefPlatform::EpicGames { identifier } => Some(Box::new(EgsImporter::new(identifier)) as _),
-            GameDefPlatform::GamePass { identifier } => Some(Box::new(GamepassImporter::new(identifier)) as _),
-            GameDefPlatform::Steam { identifier } => Some(Box::new(SteamImporter::new(identifier)) as _),
-            GameDefPlatform::SteamDirect { identifier } => Some(Box::new(SteamImporter::new(identifier)) as _),
+            GameDefPlatform::Origin { identifier } => {
+                Some(Box::new(EaImporter::new(identifier)) as _)
+            }
+            GameDefPlatform::EpicGames { identifier } => {
+                Some(Box::new(EgsImporter::new(identifier)) as _)
+            }
+            GameDefPlatform::GamePass { identifier } => {
+                Some(Box::new(GamepassImporter::new(identifier)) as _)
+            }
+            GameDefPlatform::Steam { identifier } => {
+                Some(Box::new(SteamImporter::new(identifier)) as _)
+            }
+            GameDefPlatform::SteamDirect { identifier } => {
+                Some(Box::new(SteamImporter::new(identifier)) as _)
+            }
             _ => None,
         })
         .ok_or_else(|| Error::NotSupported(base.game_id.clone(), "".into()))
@@ -126,9 +131,15 @@ pub fn find_game_exe(possible: &[String], base_path: &Path) -> Option<PathBuf> {
 
 pub fn construct_data(base: ImportBase, dist: ActiveDistribution) -> GameData {
     GameData {
-        identifier: base.overrides.custom_id.unwrap_or(base.game_def.label.clone()),
+        identifier: base
+            .overrides
+            .custom_id
+            .unwrap_or(base.game_def.label.clone()),
         ecosystem_label: base.game_def.label,
-        display_name: base.overrides.custom_name.unwrap_or(base.game_def.meta.display_name),
+        display_name: base
+            .overrides
+            .custom_name
+            .unwrap_or(base.game_def.meta.display_name),
         active_distribution: dist,
         possible_distributions: base.game_def.distributions,
     }

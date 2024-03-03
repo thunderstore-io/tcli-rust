@@ -1,4 +1,4 @@
 pub mod ecosystem;
-pub mod registry;
-pub mod proc;
 pub mod import;
+pub mod proc;
+pub mod registry;

@@ -74,11 +74,13 @@ pub enum Error {
     )]
     InstallerNotExecutable,
 
-    #[error("
+    #[error(
+        "
         The installer '{package_id}' does not support the current tcli installer protocol.
             Expected: {our_version:#?}
             Recieved: {given_version:#?}
-    ")]
+    "
+    )]
     InstallerBadVersion {
         package_id: String,
         given_version: Version,
@@ -94,7 +96,9 @@ pub enum Error {
     #[error("The installer returned an error:\n\t{message}")]
     InstallerError { message: String },
 
-    #[error("The provided game id '{0}' does not exist or has not been imported into this profile.")]
+    #[error(
+        "The provided game id '{0}' does not exist or has not been imported into this profile."
+    )]
     BadGameId(String),
 
     #[error("The Steam app with id '{0}' could not be found.")]

@@ -36,7 +36,10 @@ pub fn get_values_at(hkey: HKey, subkey: &str) -> Result<Vec<RegKeyVal>, Error> 
     open_subkey(hkey, subkey)?
         .enum_values()
         .map(|x| match x {
-            Ok((key, val)) => Ok(RegKeyVal { key, val: val.to_string() }),
+            Ok((key, val)) => Ok(RegKeyVal {
+                key,
+                val: val.to_string(),
+            }),
             Err(e) => Err(e),
         })
         .collect::<Result<Vec<_>, _>>()
@@ -45,5 +48,7 @@ pub fn get_values_at(hkey: HKey, subkey: &str) -> Result<Vec<RegKeyVal>, Error> 
 
 fn open_subkey(hkey: HKey, subkey: &str) -> Result<RegKey, Error> {
     let local = RegKey::predef(hkey as _);
-    local.open_subkey(subkey).map_err(|_| Error::RegistrySubkeyRead(subkey.to_string()))
+    local
+        .open_subkey(subkey)
+        .map_err(|_| Error::RegistrySubkeyRead(subkey.to_string()))
 }
