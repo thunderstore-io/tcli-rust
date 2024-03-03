@@ -12,6 +12,7 @@ use zip::write::FileOptions;
 
 use self::lock::LockFile;
 use crate::error::{Error, IoResultToTcli};
+use crate::game::registry::GameData;
 use crate::game::{proc, registry};
 use crate::package::install::api::TrackedFile;
 use crate::package::install::Installer;
@@ -58,7 +59,7 @@ impl Project {
             lockfile_path: project_dir.join("Thunderstore.lock"),
             game_registry_path: project_dir.join(".tcli/game_registry.json"),
             statefile_path: project_dir.join(".tcli/state.json"),
-        };
+        }; 
 
         let pid_files = proc::get_pid_files(&project_dir.join(".tcli"))?;
         let pid_files = pid_files
@@ -73,7 +74,7 @@ impl Project {
         // Delete each invalid PID.
         for pid_file in pid_files {
             fs::remove_file(pid_file)?;
-        }     
+        }
 
         Ok(project)
     }
@@ -187,6 +188,10 @@ impl Project {
         }
 
         Ok(project)
+    }
+
+    pub fn add_game_data(&self, game_data: GameData) -> Result<(), Error> {
+        registry::write_data(&self.game_registry_path, game_data)
     }
 
     /// Add one or more packages to this project.
