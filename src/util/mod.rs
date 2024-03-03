@@ -1,5 +1,5 @@
-pub mod os;
 pub mod file;
+pub mod os;
 pub mod reg;
 mod temp_file;
 

@@ -56,15 +56,19 @@ pub enum GameDefPlatform {
 }
 
 impl GameDefPlatform {
-    /// Hardcoding these for now until we integrate this sorta thing into 
+    /// Hardcoding these for now until we integrate this sorta thing into
     /// the ecosystem schema, preferably as a compile time check.
     pub fn ident_from_name<'a>(&'a self, name: &str) -> Option<&'a str> {
         match self {
             GameDefPlatform::EpicGames { identifier } if name == "egs" => Some(identifier),
             GameDefPlatform::GamePass { identifier } if name == "gamepass" => Some(identifier),
-            GameDefPlatform::Origin { identifier } if name == "origin" || name == "ea" => Some(identifier),
+            GameDefPlatform::Origin { identifier } if name == "origin" || name == "ea" => {
+                Some(identifier)
+            }
             GameDefPlatform::Steam { identifier } if name == "steam" => Some(identifier),
-            GameDefPlatform::SteamDirect { identifier } if name == "steam-direct" => Some(identifier),
+            GameDefPlatform::SteamDirect { identifier } if name == "steam-direct" => {
+                Some(identifier)
+            }
             _ => None,
         }
     }
@@ -78,7 +82,7 @@ impl GameDefPlatform {
             "steam-direct",
             "oculus",
             "other",
-        ] 
+        ]
     }
 }
 

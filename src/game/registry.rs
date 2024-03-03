@@ -78,4 +78,3 @@ pub fn write_data(game_registry: &Path, data: GameData) -> Result<(), Error> {
 
     Ok(())
 }
-
