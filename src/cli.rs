@@ -157,14 +157,21 @@ pub enum Commands {
     },
 
     /// Imports a new game for use by tcli.
-    ImportGame {
+    Import {
         /// The identifier of the game to import.
         ///
         /// Use the `list` command to query the list of imported and supported games.
+        #[clap(long, short)]
         game_id: String,
 
+        /// The platform to import the game from. Leave blank to have tcli decide for you.
+        ///
+        /// Use the `list` command to query the list of supported platforms for your game.
         #[clap(long)]
-        /// The custom identifier this game will be referenced by.
+        platform: Option<String>,
+
+        #[clap(long)]
+        /// The custom identifier this game will be referred to.
         custom_id: Option<String>,
 
         #[clap(long)]
@@ -172,17 +179,20 @@ pub enum Commands {
         custom_name: Option<String>,
 
         /// Path to the game executable to use when launching the game. Only works with servers.
+        #[clap(long, required_if_eq("platform", "nodrm"))]
+        game_dir: Option<PathBuf>,
+
+        #[clap(long, requires("platform"))]
+        steam_dir: Option<PathBuf>,
+
+        /// URL of the default repository.
         #[clap(long)]
-        exe_path: Option<PathBuf>,
+        repository: Option<String>,
 
         /// Directory where tcli keeps its data.
         /// %APPDATA%/Roaming/tcli on Windows, ~/.config/tcli on Linux.
         #[clap(long)]
         tcli_directory: Option<PathBuf>,
-
-        /// URL of the default repository.
-        #[clap(long)]
-        repository: Option<String>,
 
         /// Path of the project configuration file.
         #[clap(long, default_value = DEFAULT_MANIFEST)]
