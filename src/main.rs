@@ -6,6 +6,7 @@ use clap::Parser;
 use cli::InitSubcommand;
 use colored::Colorize;
 use directories::BaseDirs;
+use game::import::GameImporter;
 use once_cell::sync::Lazy;
 use project::ProjectKind;
 use wildmatch::WildMatch;
@@ -13,8 +14,8 @@ use wildmatch::WildMatch;
 use crate::cli::{Args, Commands, ListSubcommand};
 use crate::config::Vars;
 use crate::error::Error;
-use crate::game::registry::GameImportBuilder;
 use crate::game::{ecosystem, registry};
+use crate::game::import::{self, ImportBase, ImportOverrides};
 use crate::package::resolver::DependencyGraph;
 use crate::project::lock::LockFile;
 use crate::project::overrides::ProjectOverrides;
@@ -154,11 +155,13 @@ async fn main() -> Result<(), Error> {
 
             Ok(())
         }
-        Commands::ImportGame {
+        Commands::Import {
             game_id,
             custom_id,
             custom_name,
-            exe_path,
+            platform,
+            game_dir,
+            steam_dir,
             tcli_directory: _,
             repository: _,
             project_path,
@@ -166,13 +169,41 @@ async fn main() -> Result<(), Error> {
             ts::init_repository("https://thunderstore.io", None);
 
             let project = Project::open(&project_path)?;
-
-            GameImportBuilder::new(&game_id)
+            let overrides = ImportOverrides {
+                custom_name,
+                custom_id,
+                custom_exe: None,
+                game_dir: game_dir.clone(),
+            };
+            let import_base = ImportBase::new(&game_id)
                 .await?
-                .with_custom_id(custom_id)
-                .with_custom_name(custom_name)
-                .with_custom_exe(exe_path)
-                .import(&project.game_registry_path)
+                .with_overrides(overrides);
+
+            if platform.is_none() {
+                let importer = import::select_importer(&import_base)?;
+                let game_data = importer.construct(import_base)?;
+                return project.add_game_data(game_data);
+            }
+
+            // Hacky fix for now
+            let platform = platform.unwrap();
+            let dists = &import_base.game_def.distributions;
+            let ident = dists.iter().find_map(|x| x.ident_from_name(&platform));
+
+            let importer: Box<dyn GameImporter> = match (ident, platform.as_str()) {
+                (Some(ident), "steam") => {
+                    Box::new(import::steam::SteamImporter::new(ident).with_steam_dir(steam_dir)) as _
+                }
+                (None, "nodrm") => {
+                    Box::new(import::nodrm::NoDrmImporter::new(game_dir.as_ref().unwrap())) as _
+                }
+                _ => panic!("Manually importing games from '{platform}' is not implemented")
+            };
+            let game_data = importer.construct(import_base)?;
+            let res = project.add_game_data(game_data);
+            println!("{} has been imported into the current project", game_id.green());
+
+            res
         }
         
         Commands::Run { 

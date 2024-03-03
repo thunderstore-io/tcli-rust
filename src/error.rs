@@ -6,11 +6,14 @@ use crate::ts::version::Version;
 #[derive(Debug, thiserror::Error)]
 #[repr(u32)]
 pub enum Error {
-    #[error("An API error occured.")]
+    #[error("An API error occurred.")]
     ApiError {
         source: reqwest::Error,
         response_body: Option<String>,
     } = 1,
+
+    #[error("A game import error occurred.")]
+    GameImportError(#[from] crate::game::import::Error),
 
     #[error("The file at {0} does not exist or is otherwise not accessible.")]
     FileNotFound(PathBuf),
@@ -71,13 +74,11 @@ pub enum Error {
     )]
     InstallerNotExecutable,
 
-    #[error(
-        "
+    #[error("
         The installer '{package_id}' does not support the current tcli installer protocol.
             Expected: {our_version:#?}
             Recieved: {given_version:#?}
-    "
-    )]
+    ")]
     InstallerBadVersion {
         package_id: String,
         given_version: Version,
@@ -85,10 +86,8 @@ pub enum Error {
     },
 
     #[error(
-        "
-        The installer '{package_id}' did not respond correctly:
-            {message}
-    "
+        "The installer '{package_id}' did not respond correctly:
+        \t{message}"
     )]
     InstallerBadResponse { package_id: String, message: String },
 
@@ -96,7 +95,10 @@ pub enum Error {
     InstallerError { message: String },
 
     #[error("The provided game id '{0}' does not exist or has not been imported into this profile.")]
-    BadGameId(String)
+    BadGameId(String),
+
+    #[error("The Steam app with id '{0}' could not be found.")]
+    SteamAppNotFound(u32),
 }
 
 pub trait IoResultToTcli<R> {
