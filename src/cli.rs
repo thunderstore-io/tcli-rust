@@ -144,6 +144,10 @@ pub enum Commands {
         /// Path of the project configuration file.
         #[clap(long, default_value = "./")]
         project_path: PathBuf,
+
+        /// Syncronize the local and remote package index.
+        #[clap(long)]
+        sync: bool,
     },
 
     /// Removes a mod from the project.
@@ -154,6 +158,10 @@ pub enum Commands {
         // Path of the project configuration file.
         #[clap(long, default_value = "./")]
         project_path: PathBuf,
+
+        /// Syncronize the local and remote package index.
+        #[clap(long)]
+        sync: bool,
     },
 
     /// Imports a new game for use by tcli.
