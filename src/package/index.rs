@@ -1,15 +1,14 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{Read, Seek};
 use std::os::windows::fs::FileExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use chrono::NaiveDateTime;
 use futures_util::StreamExt;
-use log::{warn, debug};
-use once_cell::sync::{Lazy, OnceCell};
+use log::warn;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
@@ -19,9 +18,6 @@ use crate::ts::experimental;
 use crate::ts::experimental::index::PackageIndexEntry;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::version::Version;
-use crate::TCLI_HOME;
-
-static INDEX_PATH: Lazy<PathBuf> = Lazy::new(|| TCLI_HOME.join("package_index.json"));
 
 #[derive(Serialize, Deserialize)]
 struct IndexHeader {
@@ -44,6 +40,19 @@ pub struct PackageIndex {
     loose_lookup: HashMap<String, Vec<usize>>, 
 
     index_file: File,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct IndexPackageReference<'a> {
+    namespace: &'a str,
+    name: &'a str,
+    version_number: &'a str,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct LookupTableEntry {
+    start: usize,
+    len: usize,
 }
 
 impl PackageIndex {
@@ -113,7 +122,7 @@ impl PackageIndex {
 
             let entry = LookupTableEntry {
                 start,
-                end: start + chunk.len(),
+                len: chunk.len(),
             };
 
             lookup.insert(pkg_ref, entry);
@@ -207,78 +216,10 @@ impl PackageIndex {
     }
 
     fn read_index_string(&self, lt_entry: &LookupTableEntry) -> Result<String, Error> {
-        let buf_len = lt_entry.end - lt_entry.start;
-
-        let mut buffer = vec![0_u8; buf_len];
+        let mut buffer = vec![0_u8; lt_entry.len];
         let read_len = self.index_file.seek_read(&mut buffer[..], lt_entry.start as _)?;
-        assert_eq!(buf_len, read_len);
+        assert_eq!(lt_entry.len, read_len);
 
         Ok(String::from_utf8(buffer).unwrap())
     }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct IndexPackageReference<'a> {
-    namespace: &'a str,
-    name: &'a str,
-    version_number: &'a str,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct LookupTableEntry {
-    start: usize,
-    end: usize,
-}
-
-/// Syncronizes the local TCLI cache with the remote repository.
-pub async fn sync_index() -> Result<(), Error> {
-    if INDEX_PATH.is_file() {
-        fs::remove_file(INDEX_PATH.as_path())?;
-    }
-
-    let mut out = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(INDEX_PATH.as_path())
-        .await?;
-
-    let mut lookup_table: HashMap<String, LookupTableEntry> = HashMap::new();
-    let mut start = 0_usize;
-
-    let mut index_stream = experimental::index::get_index_streamed_raw().await?;
-    while let Some(chunk) = index_stream.next().await {
-        let mut chunk = chunk?;
-        chunk.push('\n');
-
-        let test: IndexPackageReference = serde_json::from_str(&chunk)?;
-        let entry = LookupTableEntry {
-            start,
-            end: start + chunk.len(),
-        };
-        lookup_table.insert(format!("{}-{}-{}", test.namespace, test.name, test.version_number), entry);
-        start += chunk.len();
-
-        out.write_all(chunk.as_bytes()).await?;
-    }
-
-    let lookup_file = INDEX_PATH.parent().unwrap().join("lookup.json");
-    fs::write(lookup_file, serde_json::to_string_pretty(&lookup_table)?)?;
-
-    let entry = lookup_table.get(&"Keroro1454-Supply_Drop-1.2.3".to_string()).unwrap(); 
-    println!("{entry:?}");
-
-    let buf_size = entry.end - entry.start;
-    let mut index = File::open(INDEX_PATH.as_path())?;
-    let mut buf = vec![0; buf_size];
-
-    index.seek(std::io::SeekFrom::Start(entry.start as _))?;
-    index.read_exact(buf.as_mut_slice())?;
-
-    println!("BUF_SIZE: {buf_size}");
-    println!("BUF: {buf:?}");
-    let line = String::from_utf8(buf).unwrap();
-    println!("LINE: {line}");
-
-    panic!("");
-    Ok(())
 }
