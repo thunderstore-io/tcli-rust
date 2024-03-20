@@ -1890,7 +1890,6 @@ dependencies = [
  "miette",
  "once_cell",
  "petgraph",
- "rayon",
  "reqwest",
  "serde",
  "serde_json",
