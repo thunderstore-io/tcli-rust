@@ -1,12 +1,16 @@
+use std::borrow::{Borrow, Cow};
 use std::collections::{HashMap, VecDeque};
 
 use petgraph::prelude::{DfsPostOrder, NodeIndex};
 use petgraph::{algo, Directed, Graph};
+use serde::de;
 
 use crate::error::Error;
 use crate::package::index::PackageIndex;
+use crate::ts::experimental::index::PackageIndexEntry;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::version::Version;
+use crate::TCLI_HOME;
 
 pub type InnerDepGraph = Graph<PackageReference, (), Directed>;
 
@@ -141,7 +145,6 @@ impl DependencyGraph {
                 continue;
             }
 
-            println!("{:?}", &self.graph[element]);
             dependencies.push(&self.graph[element]);
         }
 
@@ -220,33 +223,38 @@ impl DependencyGraph {
 /// 2. Dependencies specified within local packages within the cache.
 /// 3. Dependencies specified within the remote repository.
 pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<DependencyGraph, Error> {
-    // index::sync_index().await?;
     let start = std::time::Instant::now();
-
-    let package_index = PackageIndex::open().await?;
+    let package_index = PackageIndex::open(&TCLI_HOME).await?;
 
     let mut graph = DependencyGraph::new();
-    let mut iter_queue: VecDeque<&PackageReference> =
-        VecDeque::from(packages.iter().collect::<Vec<_>>());
+    let mut iter_queue: VecDeque<Cow<PackageReference>> =
+        VecDeque::from(packages.iter().map(Cow::Borrowed).collect::<Vec<_>>());
 
     while let Some(package_ident) = iter_queue.pop_front() {
         let package = package_index
-            .get_package(package_ident)
+            .get_package(package_ident.as_ref())
             .unwrap_or_else(|| panic!("{} does not exist in the index.", package_ident));
 
         // Add the package to the dependency graph.
-        graph.add(package_ident.clone());
+        graph.add(package_ident.clone().into_owned());
 
-        for dependency in package.dependencies.iter() {
+        for dependency in package.dependencies.into_iter() {
+            let dependency = Cow::Owned(dependency);
+
             // Queue up this dependency for processing if:
             // 1. This dependency already exists within the graph, but is a lesser version.
             // 2. This dependency does not exist within the graph.
-            if !graph.exists(dependency, Granularity::GreaterVersion) {
-                iter_queue.push_back(dependency);
-                graph.add(dependency.clone());
-            }
+            if !graph.exists(&dependency, Granularity::GreaterVersion) {
+                let inner = &dependency;
 
-            graph.add_edge(package_ident, dependency);
+                graph.add(dependency.clone().into_owned());
+                graph.add_edge(package_ident.as_ref(), inner);
+
+                iter_queue.push_back(dependency);
+            } else {
+                // Split this up into an if/else to extend the lifetime of the Cow.
+                graph.add_edge(package_ident.as_ref(), &dependency);
+            }
         }
     }
 
@@ -256,10 +264,9 @@ pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<Depende
 
     let packages = graph.digest();
 
-    let stop = std::time::Instant::now();
     let pkg_count = packages.len();
 
-    println!("Resolved {} packages in {}ms", pkg_count, (stop - start).as_millis());
+    println!("Resolved {} packages in {}ms", pkg_count, start.elapsed().as_millis());
 
     Ok(graph)
 }

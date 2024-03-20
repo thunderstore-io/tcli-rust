@@ -15,11 +15,13 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::{Error, IoResultToTcli};
-use crate::ts::experimental::package;
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
-use crate::ts::CLIENT;
+use crate::ts::{self, CLIENT};
 use crate::ui::reporter::ProgressBarTrait;
+use crate::TCLI_HOME;
+
+use self::index::PackageIndex;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum PackageSource {
@@ -94,12 +96,13 @@ impl Package {
     /// Load package metadata by querying the repository.
     pub async fn from_repo(ident: impl Borrow<PackageReference>) -> Result<Self, Error> {
         let ident = ident.borrow();
-        let package =
-            package::get_version_metadata(&ident.namespace, &ident.name, ident.version).await?;
+
+        let index = PackageIndex::open(&TCLI_HOME).await?;
+        let package = index.get_package(ident).unwrap();
 
         Ok(Package {
             identifier: ident.clone(),
-            source: PackageSource::Remote(package.download_url),
+            source: PackageSource::Remote(ts::v1::package::download_for_package(ident)),
             dependencies: package.dependencies,
         })
     }
@@ -107,11 +110,10 @@ impl Package {
     /// Load package metadata from an arbitrary path, extracting it into the cache if it passes
     // manifest validation.
     pub async fn from_path(ident: PackageReference, path: &Path) -> Result<Self, Error> {
-        let package =
-            package::get_version_metadata(&ident.namespace, &ident.name, ident.version).await?;
+        let package = Package::from_repo(ident).await?;
 
         Ok(Package {
-            identifier: ident,
+            identifier: package.identifier,
             source: PackageSource::Local(path.to_path_buf()),
             dependencies: package.dependencies,
         })
