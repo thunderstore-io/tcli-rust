@@ -418,7 +418,6 @@ impl Project {
         if sync {
             PackageIndex::sync(&TCLI_HOME).await?;
         }
-
         let lockfile = LockFile::open_or_new(&self.lockfile_path)?;
         let lockfile_graph = DependencyGraph::from_graph(lockfile.package_graph);
 

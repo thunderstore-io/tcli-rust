@@ -1,13 +1,11 @@
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 
 use petgraph::prelude::{DfsPostOrder, NodeIndex};
 use petgraph::{algo, Directed, Graph};
-use serde::de;
 
 use crate::error::Error;
 use crate::package::index::PackageIndex;
-use crate::ts::experimental::index::PackageIndexEntry;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::version::Version;
 use crate::TCLI_HOME;
@@ -263,7 +261,6 @@ pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<Depende
     }
 
     let packages = graph.digest();
-
     let pkg_count = packages.len();
 
     println!("Resolved {} packages in {}ms", pkg_count, start.elapsed().as_millis());
