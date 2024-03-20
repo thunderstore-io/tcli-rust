@@ -1,7 +1,5 @@
-use std::time::SystemTime;
-
 use async_compression::futures::bufread::GzipDecoder;
-use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
+use chrono::NaiveDateTime;
 use futures::{TryStreamExt, AsyncBufReadExt, StreamExt};
 use futures::io::{self, BufReader, ErrorKind};
 use futures_util::Stream;
