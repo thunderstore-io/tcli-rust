@@ -4,15 +4,18 @@ use std::fs;
 use std::fs::File;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use colored::Colorize;
 use futures::future::try_join_all;
 pub use publish::publish;
+use tokio::sync::Semaphore;
 use zip::write::FileOptions;
 
 use self::lock::LockFile;
 use crate::error::{Error, IoResultToTcli};
 use crate::game::{proc, registry};
+use crate::package::index::PackageIndex;
 use crate::package::install::api::TrackedFile;
 use crate::package::install::Installer;
 use crate::package::resolver::DependencyGraph;
@@ -23,7 +26,7 @@ use crate::project::state::{StagedFile, StateFile};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
 use crate::ui::reporter::{Progress, Reporter};
-use crate::util;
+use crate::{util, TCLI_HOME};
 
 pub mod lock;
 pub mod manifest;
@@ -254,13 +257,17 @@ impl Project {
         multi: &dyn Progress,
     ) -> Result<(), Error> {
         let packages = try_join_all(
-            packages
-                .into_iter()
-                .map(|x| async move { Package::resolve_new(x).await }),
+        packages
+            .into_iter()
+            .map(|x| async move { Package::resolve_new(x).await }),
         )
         .await?;
 
+        let sem = Arc::new(Semaphore::new(5));
+
         let jobs = packages.into_iter().map(|package| async {
+            let _permit = sem.acquire().await.unwrap();
+
             let bar = multi.add_bar();
             let bar = bar.as_ref();
 
@@ -295,7 +302,6 @@ impl Project {
             };
 
             bar.println(&finished_msg);
-            bar.finish_and_clear();
 
             tracked_files.map(|x| (package.identifier, x))
         });
@@ -408,7 +414,11 @@ impl Project {
     }
 
     /// Commit changes made to the project manifest to the project.
-    pub async fn commit(&self, reporter: Box<dyn Reporter>) -> Result<(), Error> {
+    pub async fn commit(&self, reporter: Box<dyn Reporter>, sync: bool) -> Result<(), Error> {
+        if sync {
+            PackageIndex::sync(&TCLI_HOME).await?;
+        }
+
         let lockfile = LockFile::open_or_new(&self.lockfile_path)?;
         let lockfile_graph = DependencyGraph::from_graph(lockfile.package_graph);
 
