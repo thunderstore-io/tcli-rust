@@ -55,3 +55,21 @@ pub fn remove_empty_dirs(root: &Path, remove_root: bool) -> Result<(), Error> {
 
     Ok(())
 }
+
+/// Read buf.len() bytes at the offset within the file.
+/// 
+/// This function exists to ameliorate the differences in which Windows and Unix platforms
+/// implement file offset reads.
+pub fn read_offset(file: &File, buf: &mut [u8], offset: u64) -> Result<usize, std::io::Error> {
+    #[cfg(target_family = "windows")]
+    {
+        use std::os::windows::fs::FileExt;
+        file.seek_read(buf, offset)
+    }
+
+    #[cfg(target_family = "unix")]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_at(buf, offset)
+    }
+}

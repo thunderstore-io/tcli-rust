@@ -1,7 +1,6 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::os::windows::fs::FileExt;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -13,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
+use crate::util::{self, file};
 use crate::error::Error;
 use crate::ts::experimental;
 use crate::ts::experimental::index::PackageIndexEntry;
@@ -217,7 +217,7 @@ impl PackageIndex {
 
     fn read_index_string(&self, lt_entry: &LookupTableEntry) -> Result<String, Error> {
         let mut buffer = vec![0_u8; lt_entry.len];
-        let read_len = self.index_file.seek_read(&mut buffer[..], lt_entry.start as _)?;
+        let read_len = file::read_offset(&self.index_file, &mut buffer[..], lt_entry.start as _)?;
         assert_eq!(lt_entry.len, read_len);
 
         Ok(String::from_utf8(buffer).unwrap())
