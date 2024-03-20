@@ -131,6 +131,7 @@ async fn main() -> Result<(), Error> {
         Commands::Add {
             packages,
             project_path,
+            sync,
         } => {
             ts::init_repository("https://thunderstore.io", None);
 
@@ -138,20 +139,21 @@ async fn main() -> Result<(), Error> {
 
             let project = Project::open(&project_path)?;
             project.add_packages(&packages[..])?;
-            project.commit(reporter).await?;
+            project.commit(reporter, sync).await?;
 
             Ok(())
         }
         Commands::Remove {
             packages,
             project_path,
+            sync,
         } => {
             ts::init_repository("https://thunderstore.io", None);
             let reporter = Box::new(IndicatifReporter);
 
             let project = Project::open(&project_path)?;
             project.remove_packages(&packages[..])?;
-            project.commit(reporter).await?;
+            project.commit(reporter, sync).await?;
 
             Ok(())
         }
