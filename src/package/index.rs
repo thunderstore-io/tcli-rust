@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
-use crate::util::{self, file};
+use crate::util::file;
 use crate::error::Error;
 use crate::ts::experimental;
 use crate::ts::experimental::index::PackageIndexEntry;
