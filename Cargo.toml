@@ -14,7 +14,7 @@ petgraph = { version = "0.6", features = ["serde-1"] }
 thiserror = "1.0"
 miette = { version = "5.10", features = ["fancy"] }
 colored = "2.0"
-indicatif = { version = "0.17.3", features = ["improved_unicode", "tokio"] }
+indicatif = { version = "0.17.8", features = ["improved_unicode", "tokio"] }
 
 # async runtime and helpers
 futures = "0.3"
@@ -40,6 +40,9 @@ directories = "5.0"
 steamlocate = "2.0.0-alpha.0"
 
 sysinfo = "0.29"
+chrono = { version = "0.4.35", features = ["serde"] }
+log = "0.4.21"
+rayon = "1.9.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.50"
