@@ -51,10 +51,9 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn open(project_dir: &Path) -> Result<Self, Error> {
-        // TODO: Validate that the following paths exist.
-        let project_dir = project_dir.canonicalize()?;
-        let project = Project {
+    /// Open the directory as a project but perform no additional tasks.
+    pub fn open_unchecked(project_dir: &Path) -> Self {
+        Self {
             base_dir: project_dir.to_path_buf(),
             state_dir: project_dir.join(".tcli/project_state"),
             staging_dir: project_dir.join(".tcli/staging"),
@@ -62,9 +61,39 @@ impl Project {
             lockfile_path: project_dir.join("Thunderstore.lock"),
             game_registry_path: project_dir.join(".tcli/game_registry.json"),
             statefile_path: project_dir.join(".tcli/state.json"),
-        }; 
+        }
+    }
 
-        let pid_files = proc::get_pid_files(&project_dir.join(".tcli"))?;
+    /// Open the directory as a project, performing validation and housekeeping tasks.
+    pub fn open(project_dir: &Path) -> Result<Self, Error> {
+        // TODO: Validate that the following paths exist.
+        let project = Project::open_unchecked(project_dir);
+        project.validate()?;
+        project.prune_pids()?;
+
+        Ok(project)
+    }
+
+    /// Validate that the project's state is correct and in working order.
+    pub fn validate(&self) -> Result<(), Error> {
+        // A directory without a manifest is *not* a project.
+        if !self.manifest_path.is_file() {
+            Err(Error::NoProjectFile(self.manifest_path.to_path_buf()))?;
+        }
+
+        // Everything within .tcli is assumed to be replacable. Therefore we only care
+        // about whether or not .tcli itself exists.
+        let dotdir = self.base_dir.join(".tcli");
+        if !dotdir.is_dir() {
+            fs::create_dir(dotdir)?;
+        } 
+
+        Ok(())
+    }
+
+    /// Prune pid files that refer to processes that no longer exist.
+    pub fn prune_pids(&self) -> Result<(), Error> {
+        let pid_files = proc::get_pid_files(&self.base_dir.join(".tcli"))?;
         let pid_files = pid_files
             .iter()
             .filter_map(|x| fs::read_to_string(x).map(|inner| (x, inner)).ok())
@@ -79,7 +108,7 @@ impl Project {
             fs::remove_file(pid_file)?;
         }
 
-        Ok(project)
+        Ok(())
     }
 
     /// Create a new project within the given directory.
