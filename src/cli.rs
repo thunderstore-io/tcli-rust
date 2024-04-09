@@ -169,7 +169,6 @@ pub enum Commands {
         /// The identifier of the game to import.
         ///
         /// Use the `list` command to query the list of imported and supported games.
-        #[clap(long, short)]
         game_id: String,
 
         /// The platform to import the game from. Leave blank to have tcli decide for you.
