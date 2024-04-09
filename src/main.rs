@@ -42,6 +42,10 @@ pub static TCLI_HOME: Lazy<PathBuf> = Lazy::new(|| {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    if !TCLI_HOME.is_dir() {
+        std::fs::create_dir_all(TCLI_HOME.as_path())?;
+    }
+
     match Args::parse().commands {
         Commands::Init {
             command,
