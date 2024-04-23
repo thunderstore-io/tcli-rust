@@ -24,6 +24,14 @@ use crate::TCLI_HOME;
 
 use self::index::PackageIndex;
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PackageMetadata {
+    #[serde(flatten)]
+    manifest: PackageManifestV1,
+    reference: String,
+    icon: PathBuf,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum PackageSource {
     Remote(String),
@@ -134,6 +142,24 @@ impl Package {
         }
     }
 
+    /// Get the metadata associated with this package. This will return None
+    /// the package does not exist locally.
+    pub async fn get_metadata(&self) -> Result<Option<PackageMetadata>, Error> {
+        let Some(package_dir) = self.get_path().await else {
+            return Ok(None);
+        };
+        let manifest = {
+            let str = fs::read_to_string(package_dir.join("manifest.json")).await?;
+            serde_json::from_str::<PackageManifestV1>(&str)?
+        };
+        let icon = package_dir.join("icon.png");
+        let reference = package_dir.file_name().unwrap().to_string_lossy().to_string();
+        
+        Ok(Some(PackageMetadata {
+            manifest,
+            reference,
+            icon,
+        }))
     }
 
     pub async fn download(&self, reporter: &dyn ProgressBarTrait) -> Result<PathBuf, Error> {
