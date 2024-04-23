@@ -4,6 +4,7 @@ pub mod install;
 pub mod resolver;
 
 use std::borrow::Borrow;
+use std::fs::File;
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 
@@ -43,7 +44,7 @@ pub struct Package {
 impl Package {
     /// Attempt to resolve the package from the local cache or remote. 
     /// This does not download the package, it just finds its "source".
-    pub async fn resolve_new(ident: impl Borrow<PackageReference>) -> Result<Self, Error> {
+    pub async fn from_any(ident: impl Borrow<PackageReference>) -> Result<Self, Error> {
         if cache::get_cache_location(ident.borrow()).exists() {
             return Package::from_cache(ident).await;
         }
@@ -110,7 +111,9 @@ impl Package {
     /// Load package metadata from an arbitrary path, extracting it into the cache if it passes
     // manifest validation.
     pub async fn from_path(ident: PackageReference, path: &Path) -> Result<Self, Error> {
-        let package = Package::from_repo(ident).await?;
+        // let package = Package::from_repo(ident).await?;
+        add_to_cache(&ident, File::open(path).map_fs_error(path)?)?;
+        let package = Package::from_cache(ident).await?;
 
         Ok(Package {
             identifier: package.identifier,
@@ -119,64 +122,21 @@ impl Package {
         })
     }
 
-    /// Resolve the package into a discrete path. This will download the package if it is not cached,
-    // otherwise it will return its cached path.
-    pub async fn resolve(&self, reporter: &dyn ProgressBarTrait) -> Result<PathBuf, Error> {
+    /// Resolve the package into a discrete path, returning None if it does not exist locally.
+    pub async fn get_path(&self) -> Option<PathBuf> {
         match &self.source {
             PackageSource::Local(path) => add_to_cache(
                 &self.identifier,
-                std::fs::File::open(path).map_fs_error(path)?,
-            ),
-            PackageSource::Remote(_) => self.download(reporter).await,
-            PackageSource::Cache(path) => Ok(path.clone()),
+                File::open(path).map_fs_error(path).ok()?,
+            ).ok(),
+            PackageSource::Cache(path) => Some(path.clone()),
+            PackageSource::Remote(_) => None,
         }
     }
 
-    pub async fn add(
-        &self,
-        project_state: &Path,
-        reporter: Box<dyn ProgressBarTrait>,
-    ) -> Result<(), Error> {
-        let cache_path = self.resolve(reporter.as_ref()).await?;
-        let install_dir = project_state.join(self.identifier.to_string());
-
-        if install_dir.is_dir() {
-            fs::remove_dir_all(&install_dir)
-                .await
-                .map_fs_error(&install_dir)?;
-        }
-
-        for item in walkdir::WalkDir::new(&cache_path).into_iter() {
-            let item = item?;
-
-            let dest_path = install_dir.join(item.path().strip_prefix(&cache_path).unwrap());
-
-            if item.file_type().is_dir() {
-                tokio::fs::create_dir_all(&dest_path)
-                    .await
-                    .map_fs_error(&dest_path)?;
-            } else if item.file_type().is_file() {
-                tokio::fs::copy(item.path(), &dest_path)
-                    .await
-                    .map_fs_error(&dest_path)?;
-            }
-        }
-
-        let finished_msg = format!(
-            "{} {}-{} ({})",
-            "[✓]".green(),
-            self.identifier.namespace.bold(),
-            self.identifier.name.bold(),
-            self.identifier.version.to_string().truecolor(90, 90, 90)
-        );
-
-        reporter.println(&finished_msg);
-        reporter.finish_and_clear();
-
-        Ok(())
     }
 
-    async fn download(&self, reporter: &dyn ProgressBarTrait) -> Result<PathBuf, Error> {
+    pub async fn download(&self, reporter: &dyn ProgressBarTrait) -> Result<PathBuf, Error> {
         let PackageSource::Remote(package_source) = &self.source else {
             panic!("Invalid use, this is a local package.")
         };
