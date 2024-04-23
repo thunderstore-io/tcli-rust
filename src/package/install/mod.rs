@@ -29,7 +29,10 @@ impl Installer {
     pub async fn load_and_prepare(package: &Package) -> Result<Installer, Error> {
         // Temp, we'll figure out a good solution from the progress reporter later.
         let test = VoidProgress {};
-        let cache_dir = package.resolve(test.add_bar().as_ref()).await?;
+        let cache_dir = match package.get_path().await {
+            Some(x) => x,
+            None => package.download(test.add_bar().as_ref()).await?
+        };
 
         let manifest = {
             let path = cache_dir.join("installer.json");
