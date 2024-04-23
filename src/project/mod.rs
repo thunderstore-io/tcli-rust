@@ -293,7 +293,7 @@ impl Project {
         let packages = try_join_all(
         packages
             .into_iter()
-            .map(|x| async move { Package::resolve_new(x).await }),
+            .map(|x| async move { Package::from_any(x).await }),
         )
         .await?;
 
@@ -306,7 +306,10 @@ impl Project {
             let bar = bar.as_ref();
 
             // Resolve the package, either downloading it or returning its cached path.
-            let package_dir = package.resolve(bar).await?;
+            let package_dir = match package.get_path().await {
+                Some(x) => x,
+                None => package.download(bar).await?
+            };
             let tracked_files = installer
                 .install_package(
                     &package,
@@ -376,7 +379,7 @@ impl Project {
         let packages = try_join_all(
             packages
                 .into_iter()
-                .map(|x| async move { Package::resolve_new(x).await }),
+                .map(|x| async move { Package::from_any(x).await }),
         )
         .await?;
 
@@ -385,7 +388,10 @@ impl Project {
             let bar = multi.add_bar();
             let bar = bar.as_ref();
 
-            let package_dir = package.resolve(bar).await?;
+            let package_dir = match package.get_path().await {
+                Some(x) => x,
+                None => package.download(bar).await?
+            };
             let state_entry = statefile.state.get(&package.identifier);
 
             let tracked_files = state_entry

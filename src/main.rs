@@ -17,6 +17,7 @@ use crate::error::Error;
 use crate::game::{ecosystem, registry};
 use crate::game::import::{self, ImportBase, ImportOverrides};
 use crate::package::resolver::DependencyGraph;
+use crate::package::Package;
 use crate::project::lock::LockFile;
 use crate::project::overrides::ProjectOverrides;
 use crate::project::Project;
@@ -334,17 +335,14 @@ async fn main() -> Result<(), Error> {
                 let lock = LockFile::open_or_new(&project.lockfile_path)?;
                 let graph = DependencyGraph::from_graph(lock.package_graph);
 
-                println!("Installed packages:");
-
-
-
                 for package in graph.digest() {
-                    println!(
-                        "- {}-{} ({})",
-                        package.namespace.bold(),
-                        package.name.bold(),
-                        package.version.to_string().truecolor(90, 90, 90)
-                    );
+                    let package = Package::from_any(package).await?;
+                    let Some(meta) = package.get_metadata().await? else {
+                        continue
+                    };
+
+                    let str = serde_json::to_string_pretty(&meta)?;
+                    println!("{str}");
                 }
 
                 Ok(())
