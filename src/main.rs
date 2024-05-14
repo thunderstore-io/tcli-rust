@@ -29,6 +29,7 @@ mod error;
 mod game;
 mod package;
 mod project;
+mod server;
 mod ts;
 mod ui;
 mod util;
