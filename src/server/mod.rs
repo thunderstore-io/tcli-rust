@@ -5,6 +5,7 @@ use std::{io, thread};
 
 use self::proto::{Message, Request, Response};
 
+mod lock;
 mod method;
 mod proto;
 mod route;
