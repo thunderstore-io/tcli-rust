@@ -1,36 +1,26 @@
-use std::str::FromStr;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_with::{serde_as, DisplayFromStr};
 
 use crate::server::method::Method;
+use crate::server::Error;
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("The provided message '{0}' could not be parsed as JSON.")]
-    InvalidMessage(String),
-}
+const JRPC_VER: &str = "2.0";
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum Message {
-    Request(Request),
+    Request(RequestInner),
     Response(Response),
 }
 
 impl Message {
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        serde_json::from_str::<Message>(json).map_err(|e| Error::InvalidMessage(e.to_string()))
-    }
-}
+        let msg = serde_json::from_str::<Message>(json).map_err(Error::InvalidJson)?;
 
-/// This FromStr wrapper is here specifically for serde_with deserialization.
-impl FromStr for Message {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Message::from_json(s)
+        match msg {
+            Message::Request(x) if x.jsonrpc != JRPC_VER => Err(Error::InvalidMethod(x.jsonrpc)),
+            _ => Ok(msg),
+        }
     }
 }
 
@@ -41,22 +31,51 @@ pub enum Id {
     String(String),
 }
 
-#[serde_as]
+/// This is the raw representation of a JSON-RPC request *before* we convert it
+/// into a structured type.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct Request {
+pub struct RequestInner {
+    /// The JSON-RPC protocol version. Must be 2.0 as per the spec.
+    pub jsonrpc: String,
+
     /// An identifier which, as per the JSON-RPC spec, can either be an integer
     /// or string. We use an untagged enum to allow serde to transparenly parse these types.
     pub id: Id,
 
     /// This field is deserialized into a Method enum variant via Method::from_str.
     /// Unfortunately this means that errors returned from Method::from_str are lost.
-    #[serde_as(as = "DisplayFromStr")]
-    pub method: Method,
+    // #[serde_as(as = "DisplayFromStr")]
+    pub method: String,
 
     /// This field is null for notifications.
     #[serde(default = "Value::default")]
     #[serde(skip_serializing_if = "Value::is_null")]
     pub params: Value,
+}
+
+/// A structured JSON-RPC request.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct Request {
+    /// The JSON-RPC identifier.
+    pub id: Id,
+    /// The method with data, if any.
+    pub method: Method,
+}
+
+impl TryFrom<RequestInner> for Request {
+    type Error = super::Error;
+
+    fn try_from(value: RequestInner) -> Result<Self, Self::Error> {
+        // We deserialize the params value depending on the provided method.
+        // This is done by passing it to the from_value function of the Method type,
+        // which iterates down through nested enums until we have a concrete type for the Value
+        // and a valid method variant.
+        let method = Method::from_value(&value.method, value.params)?;
+        Ok(Self {
+            id: value.id,
+            method,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -66,39 +85,78 @@ pub struct Response {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ErrorMessage {
-    pub id: Id,
+pub struct RpcError {
+    pub code: isize,
+    pub message: String,
+}
+
+impl From<Error> for RpcError {
+    fn from(value: Error) -> Self {
+        Self {
+            code: value.discriminant(),
+            message: value.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::server::method::{PackageMethod, ProjectMethod};
+    use crate::server::method::package::PackageMethod;
+    use crate::server::method::project::{ProjectMethod, SetContext};
+
+    #[test]
+    fn test_jrpc_ver_validate() {
+        let data = r#"{ "jsonrpc": "2.0", "id": 1, "method": "oksamies""#;
+    }
 
     #[test]
     fn test_request_deserialize() {
-        let request = "{ \"id\": 1, \"method\": \"project/set_context\" }";
-        let de = Message::from_str(request).unwrap();
-        let cmp = Request {
-            id: Id::Int(1),
-            method: Method::Project(ProjectMethod::SetContext),
-            params: Value::Null,
-        };
-        assert_eq!(de, Message::Request(cmp));
+        let data = r#"{ "jsonrpc": "2.0", "id": 1, "method": "project/set_context", "params": { "path": "/some/path" } }"#;
+        let rq: RequestInner = serde_json::from_str(&data).unwrap();
+        assert_eq!(rq.id, Id::Int(1));
+        assert_eq!(rq.method, "project/set_context");
+        assert!(matches!(rq.params, Value::Object(..)));
 
-        let request = "{ \"id\": \"oksamies\", \"method\": \"package/get_metadata\" }";
-        let de = Message::from_str(request).unwrap();
-        let cmp = Request {
-            id: Id::String(String::from("oksamies")),
-            method: Method::Package(PackageMethod::GetMetadata),
-            params: Value::Null,
-        };
-        assert_eq!(de, Message::Request(cmp));
+        let rq = Request::try_from(rq).unwrap();
+        assert_eq!(rq.id, Id::Int(1));
+        assert!(matches!(
+            rq.method,
+            Method::Project(ProjectMethod::SetContext(SetContext { .. }))
+        ));
 
-        // At this point the error is pretty obfuscated behind serde_json::Error, so we just
-        // check to see if an error was returned.
-        let request = "{ \"id\": \"oksamies\", \"method\": \"null/null\" }";
-        let de: Result<Request, serde_json::Error> = serde_json::from_str(request);
-        assert!(de.is_err());
+        let data = r#"{ "jsonrpc": "2.0", "id": "oksamies", "method": "package/get_metadata" }"#;
+        let rq: RequestInner = serde_json::from_str(&data).unwrap();
+        assert_eq!(rq.id, Id::String("oksamies".into()));
+        assert_eq!(rq.method, "package/get_metadata");
+        assert_eq!(rq.params, Value::Null);
+
+        let rq = Request::try_from(rq).unwrap();
+        assert_eq!(rq.id, Id::String("oksamies".into()));
+        assert!(matches!(
+            rq.method,
+            Method::Package(PackageMethod::GetMetadata)
+        ));
+
+        // Invalid methods should still be deserialized aok as they're checked by typed Request struct.
+        let data = r#"{ "jsonrpc": "2.0", "id": "oksamies", "method": "null/null" }"#;
+        let rq: RequestInner = serde_json::from_str(&data).unwrap();
+        assert_eq!(rq.id, Id::String("oksamies".into()));
+        assert_eq!(rq.method, "null/null");
+        assert_eq!(rq.params, Value::Null);
+
+        // ...but should then fail to be converted into a typed Request.
+        let rq = Request::try_from(rq);
+        assert!(matches!(rq, Err(Error::InvalidMethod(..)))); // Invalid methods should still be deserialized aok as they're checked by typed Request struct.
+
+        // Likewise, valid methods with garbage data should also fail when converted to typed.
+        let data = r#"{ "jsonrpc": "2.0", "id": "oksamies", "method": "project/set_context", "params": { "garbage": 1 } }"#;
+        let rq: RequestInner = serde_json::from_str(&data).unwrap();
+        assert_eq!(rq.id, Id::String("oksamies".into()));
+        assert_eq!(rq.method, "project/set_context");
+        assert!(matches!(rq.params, Value::Object(..)));
+
+        let rq = Request::try_from(rq);
+        assert!(matches!(rq, Err(Error::InvalidJson(..))));
     }
 }
