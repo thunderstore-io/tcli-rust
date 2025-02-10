@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::{Error, GameImporter};
+use super::GameImporter;
+use crate::error::Error;
+use crate::game::error::GameError;
 use crate::game::import::ImportBase;
 use crate::game::registry::{ActiveDistribution, GameData};
 use crate::ts::v1::models::ecosystem::GameDefPlatform;
@@ -34,8 +36,10 @@ impl GameImporter for EaImporter {
             .clone()
             .or_else(|| super::find_game_exe(&r2mm.exe_names, &game_dir))
             .ok_or_else(|| {
-                super::Error::ExeNotFound(base.game_def.label.clone(), game_dir.clone())
-            })?;
+                GameError::ExeNotFound {
+                    possible_names: r2mm.exe_names.clone(),
+                    base_path: game_dir.clone(),
+            }})?;
         let dist = ActiveDistribution {
             dist: GameDefPlatform::Origin {
                 identifier: self.ident.to_string(),

@@ -1,8 +1,8 @@
 use std::{ffi::OsStr, path::{Path, PathBuf}};
 use sysinfo::{
 	Pid,
-	ProcessExt, 
-	System, 
+	ProcessExt,
+	System,
 	SystemExt
 };
 
@@ -23,7 +23,7 @@ pub fn get_pid_files(dir: &Path) -> Result<Vec<PathBuf>, Error> {
 pub fn is_running(pid: usize) -> bool {
 	let mut system = System::new();
 	system.refresh_processes();
-	
+
 	system.process(Pid::from(pid)).is_some()
 }
 

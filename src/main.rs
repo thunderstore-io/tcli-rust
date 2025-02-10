@@ -6,16 +6,18 @@ use clap::Parser;
 use cli::InitSubcommand;
 use colored::Colorize;
 use directories::BaseDirs;
+use error::{IoError, Error};
 use game::import::GameImporter;
 use once_cell::sync::Lazy;
+use project::error::ProjectError;
 use project::ProjectKind;
+use ts::error::ApiError;
 use wildmatch::WildMatch;
 
 use crate::cli::{Args, Commands, ListSubcommand};
 use crate::config::Vars;
-use crate::error::Error;
-use crate::game::{ecosystem, registry};
 use crate::game::import::{self, ImportBase, ImportOverrides};
+use crate::game::{ecosystem, registry};
 use crate::package::resolver::DependencyGraph;
 use crate::package::Package;
 use crate::project::lock::LockFile;
@@ -29,7 +31,7 @@ mod error;
 mod game;
 mod package;
 mod project;
-mod server;
+// mod server;
 mod ts;
 mod ui;
 mod util;
@@ -48,7 +50,7 @@ async fn main() -> Result<(), Error> {
         std::fs::create_dir_all(TCLI_HOME.as_path())?;
     }
 
-    match Args::parse().commands {
+    let test: Result<(), Error> = match Args::parse().commands {
         Commands::Init {
             command,
             overwrite,
@@ -74,7 +76,7 @@ async fn main() -> Result<(), Error> {
             }
 
             Ok(())
-        },
+        }
         Commands::Build {
             package_name,
             package_namespace,
@@ -88,7 +90,7 @@ async fn main() -> Result<(), Error> {
                 .name_override(package_name)
                 .version_override(package_version)
                 .output_dir_override(output_dir);
-            
+
             project.build(overrides)?;
             Ok(())
         }
@@ -103,31 +105,31 @@ async fn main() -> Result<(), Error> {
         } => {
             token = token.or_else(|| Vars::AuthKey.into_var().ok());
             if token.is_none() {
-                return Err(Error::MissingAuthToken);
+                Err(ApiError::MissingAuthToken)?;
             }
-            
+
             let project = Project::open(&project_path)?;
             let manifest = project.get_manifest()?;
-            
+
             ts::init_repository(
                 manifest
                     .config
                     .repository
                     .as_deref()
-                    .ok_or(Error::MissingRepository)?,
+                    .ok_or(ProjectError::MissingRepository)?,
                 token.as_deref(),
             );
 
             let archive_path = match package_archive {
                 Some(x) if x.is_file() => Ok(x),
-                Some(x) => Err(Error::FileNotFound(x)),
+                Some(x) => Err(IoError::FileNotFound(x))?,
                 None => {
                     let overrides = ProjectOverrides::new()
                         .namespace_override(package_namespace)
                         .name_override(package_name)
                         .version_override(package_version)
                         .repository_override(repository);
-            
+
                     project.build(overrides)
                 }
             }?;
@@ -183,9 +185,7 @@ async fn main() -> Result<(), Error> {
                 custom_exe: None,
                 game_dir: game_dir.clone(),
             };
-            let import_base = ImportBase::new(&game_id)
-                .await?
-                .with_overrides(overrides);
+            let import_base = ImportBase::new(&game_id).await?.with_overrides(overrides);
 
             if platform.is_none() {
                 let importer = import::select_importer(&import_base)?;
@@ -200,61 +200,59 @@ async fn main() -> Result<(), Error> {
 
             let importer: Box<dyn GameImporter> = match (ident, platform.as_str()) {
                 (Some(ident), "steam") => {
-                    Box::new(import::steam::SteamImporter::new(ident).with_steam_dir(steam_dir)) as _
+                    Box::new(import::steam::SteamImporter::new(ident).with_steam_dir(steam_dir))
+                        as _
                 }
-                (None, "nodrm") => {
-                    Box::new(import::nodrm::NoDrmImporter::new(game_dir.as_ref().unwrap())) as _
-                }
-                _ => panic!("Manually importing games from '{platform}' is not implemented")
+                (None, "nodrm") => Box::new(import::nodrm::NoDrmImporter::new(
+                    game_dir.as_ref().unwrap(),
+                )) as _,
+                _ => panic!("Manually importing games from '{platform}' is not implemented"),
             };
             let game_data = importer.construct(import_base)?;
             let res = project.add_game_data(game_data);
-            println!("{} has been imported into the current project", game_id.green());
+            println!(
+                "{} has been imported into the current project",
+                game_id.green()
+            );
 
             res
         }
-        
-        Commands::Run { 
-            game_id, 
-            vanilla, 
-            args, 
-            tcli_directory: _, 
-            repository: _, 
-            project_path, 
-            trailing_args
+
+        Commands::Run {
+            game_id,
+            vanilla,
+            args,
+            tcli_directory: _,
+            repository: _,
+            project_path,
+            trailing_args,
         } => {
             let project = Project::open(&project_path)?;
-            let args = args.unwrap_or(vec![])
+            let args = args
+                .unwrap_or(vec![])
                 .into_iter()
                 .chain(trailing_args.into_iter())
                 .collect::<Vec<_>>();
-            
-            project.start_game(
-                &game_id,
-                !vanilla,
-                args,
-            ).await?;
+
+            project.start_game(&game_id, !vanilla, args).await?;
 
             Ok(())
         }
 
-        Commands::Stop {
-            id,
-            project_path,
-        } => {
+        Commands::Stop { id, project_path } => {
             match id.parse::<usize>() {
                 Ok(x) => {
                     game::proc::kill(x);
-                },
+                }
                 Err(_) => {
                     let project = Project::open(&project_path)?;
                     project.stop_game(&id)?;
                 }
             };
-            
+
             Ok(())
         }
-        
+
         Commands::UpdateSchema {} => {
             ts::init_repository("https://thunderstore.io", None);
 
@@ -287,7 +285,10 @@ async fn main() -> Result<(), Error> {
             Ok(())
         }
         Commands::List { command } => match command {
-            ListSubcommand::Platforms { target, detected: _ } => {
+            ListSubcommand::Platforms {
+                target,
+                detected: _,
+            } => {
                 let platforms = registry::get_supported_platforms(&target);
 
                 println!("TCLI supports the following platforms on {target}");
@@ -339,7 +340,7 @@ async fn main() -> Result<(), Error> {
                 for package in graph.digest() {
                     let package = Package::from_any(package).await?;
                     let Some(meta) = package.get_metadata().await? else {
-                        continue
+                        continue;
                     };
 
                     let str = serde_json::to_string_pretty(&meta)?;
@@ -349,5 +350,7 @@ async fn main() -> Result<(), Error> {
                 Ok(())
             }
         },
-    }
+    };
+
+    test
 }

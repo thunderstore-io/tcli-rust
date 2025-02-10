@@ -6,47 +6,15 @@ pub mod steam;
 
 use std::path::{Path, PathBuf};
 
+use super::error::GameError;
 use super::registry::{ActiveDistribution, GameData};
+use crate::error::Error;
 use crate::game::import::ea::EaImporter;
 use crate::game::import::egs::EgsImporter;
 use crate::game::import::gamepass::GamepassImporter;
 use crate::game::import::steam::SteamImporter;
 use crate::ts::v1::models::ecosystem::GameDef;
 use crate::ts::v1::{ecosystem, models::ecosystem::GameDefPlatform};
-use crate::util::reg;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("The game '{0}' is not supported by platform '{1}'.")]
-    NotSupported(String, String),
-
-    #[error("A game with id '{0}' could not be found within the ecosystem schema.")]
-    InvalidGameId(String),
-
-    #[error("Could not find the game '{0}' installed via the platform '{1}'.")]
-    NotFound(String, String),
-
-    #[error("The EGS directory at '{0}' does not exist or is unreadable.")]
-    DirNotFound(PathBuf),
-
-    #[error("Could not find the executable for game '{0}' within the dir '{1}'.")]
-    ExeNotFound(String, PathBuf),
-
-    #[error("An error occured while fetching the ecosystem schema.")]
-    EcosystemSchema,
-
-    #[error("Unable to read the registry.")]
-    RegistryRead(#[from] reg::Error),
-
-    #[error("The Steam library could not be automatically found.")]
-    SteamDirNotFound,
-
-    #[error("The path '{0}' does not refer to a valid Steam directory.")]
-    SteamDirBadPath(PathBuf),
-
-    #[error("The app with id '{0}' could not be found in the Steam instance at '{1}'.")]
-    SteamAppNotFound(u32, PathBuf),
-}
 
 pub trait GameImporter {
     fn construct(self: Box<Self>, base: ImportBase) -> Result<GameData, Error>;
@@ -71,10 +39,10 @@ impl ImportBase {
     pub async fn new(game_id: &str) -> Result<Self, Error> {
         let game_def = ecosystem::get_schema()
             .await
-            .map_err(|_| Error::EcosystemSchema)?
+            .map_err(|_| GameError::EcosystemSchema)?
             .games
             .get(game_id)
-            .ok_or_else(|| Error::InvalidGameId(game_id.into()))?
+            .ok_or_else(|| GameError::BadGameId(game_id.into()))?
             .clone();
 
         Ok(ImportBase {
@@ -119,7 +87,7 @@ pub fn select_importer(base: &ImportBase) -> Result<Box<dyn GameImporter>, Error
             }
             _ => None,
         })
-        .ok_or_else(|| Error::NotSupported(base.game_id.clone(), "".into()))
+        .ok_or_else(|| GameError::NotSupported(base.game_id.clone(), "".into()).into())
 }
 
 pub fn find_game_exe(possible: &[String], base_path: &Path) -> Option<PathBuf> {
