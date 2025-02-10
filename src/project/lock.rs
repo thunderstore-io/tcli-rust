@@ -7,8 +7,8 @@ use md5::Md5;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::error::Error;
 use crate::package::Package;
-use crate::Error;
 use crate::package::resolver::{DependencyGraph, InnerDepGraph};
 
 #[derive(Serialize, Deserialize, Debug)]

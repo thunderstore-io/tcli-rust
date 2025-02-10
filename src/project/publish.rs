@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
-use crate::error::Error;
+use crate::error::{IoError, Error};
 use crate::project::manifest::ProjectManifest;
 use crate::ts::experimental::models::publish::PackageSubmissionMetadata;
 use crate::ts::experimental::publish;
+
+use super::error::ProjectError;
 
 pub async fn publish(
     manifest: &ProjectManifest,
@@ -12,10 +14,10 @@ pub async fn publish(
     let package = manifest
         .package
         .as_ref()
-        .ok_or(Error::MissingTable("package"))?;
+        .ok_or(ProjectError::MissingTable("package"))?;
 
     if !archive_path.is_file() {
-        Err(Error::FileNotFound(archive_path.clone()))?;
+        Err(IoError::FileNotFound(archive_path.clone()))?;
     }
 
     let publish = manifest.publish.as_ref().unwrap();

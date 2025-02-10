@@ -1,141 +1,109 @@
 use std::path::{Path, PathBuf};
 
-use crate::ts::version::Version;
+use crate::ts::error::ApiError;
 
-#[allow(clippy::enum_variant_names)]
+use crate::game::error::GameError;
+use crate::package::error::PackageError;
+use crate::project::error::ProjectError;
+
 #[derive(Debug, thiserror::Error)]
 #[repr(u32)]
 pub enum Error {
-    #[error("An API error occurred.")]
-    ApiError {
-        source: reqwest::Error,
-        response_body: Option<String>,
-    } = 1,
+    #[error("{0}")]
+    Game(#[from] GameError),
 
-    #[error("A game import error occurred.")]
-    GameImportError(#[from] crate::game::import::Error),
+    #[error("{0}")]
+    Package(#[from] PackageError),
 
-    #[error("The file at {0} does not exist or is otherwise not accessible.")]
+    #[error("{0}")]
+    Project(#[from] ProjectError),
+
+    #[error("{0}")]
+    Api(#[from] ApiError),
+
+    #[error("{0}")]
+    Io(#[from] IoError),
+
+    #[error("{0}")]
+    JsonParse(#[from] serde_json::Error),
+
+    #[error("{0}")]
+    TomlDeserialize(#[from] toml::de::Error),
+
+    #[error("{0}")]
+    TomlSerialize(#[from] toml::ser::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IoError {
+    #[error("A file IO error occured: {0}.")]
+    Native(std::io::Error, Option<PathBuf>),
+
+    #[error("File not found: {0}.")]
     FileNotFound(PathBuf),
 
-    #[error("The directory at {0} does not exist or is otherwise not accessible.")]
-    DirectoryNotFound(PathBuf),
+    #[error("Expected directory at '{0}', got file.")]
+    DirectoryIsFile(PathBuf),
 
-    #[error("A network error occurred while sending an API request.")]
-    NetworkError(#[from] reqwest::Error),
+    #[error("Directory not found: {0}.")]
+    DirNotFound(PathBuf),
 
-    #[error("The path at {0} is actually a file.")]
-    ProjectDirIsFile(PathBuf),
+    #[error("{0}")]
+    DirWalker(walkdir::Error),
 
-    #[error("A project configuration already exists at {0}.")]
-    ProjectAlreadyExists(PathBuf),
+    #[error("Failed to find file '{0}' within the directory '{1}.")]
+    FailedFileSearch(String, PathBuf),
 
-    #[error("A generic IO error occurred: {0}")]
-    GenericIoError(#[from] std::io::Error),
+    #[error("Failed to read subkey at '{0}'.")]
+    RegistrySubkeyRead(String),
 
-    #[error("A file IO error occurred at path {0}: {1}")]
-    FileIoError(PathBuf, std::io::Error),
-
-    #[error("Invalid version.")]
-    InvalidVersion(#[from] crate::ts::version::VersionParseError),
-
-    #[error("Failed to read project file. {0}")]
-    FailedDeserializeProject(#[from] toml::de::Error),
-
-    #[error("No project exists at the path {0}.")]
-    NoProjectFile(PathBuf),
+    #[error("Failed to read value with name '{0}' at key '{1}'.")]
+    RegistryValueRead(String, String),
 
     #[error("Failed modifying zip file: {0}.")]
     ZipError(#[from] zip::result::ZipError),
+}
 
-    #[error("Project is missing required table '{0}'.")]
-    MissingTable(&'static str),
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(IoError::Native(value, None))
+    }
+}
 
-    #[error("Missing repository url.")]
-    MissingRepository,
+impl From<reqwest::Error> for Error {
+    fn from(value: reqwest::Error) -> Self {
+        Self::Api(ApiError::BadRequest { source: value, response_body: None })
+    }
+}
 
-    #[error("Missing auth token.")]
-    MissingAuthToken,
-
-    #[error("The game identifier '{0}' does not exist within the ecosystem schema.")]
-    InvalidGameId(String),
-
-    #[error("An error occurred while parsing JSON: {0}")]
-    JsonParserError(#[from] serde_json::Error),
-
-    #[error("An error occured while serializing TOML: {0}")]
-    TomlSerializer(#[from] toml::ser::Error),
-
-    #[error("The installer does not contain a valid manifest.")]
-    InstallerNoManifest,
-
-    #[error(
-        "The installer executable for the current OS and architecture combination does not exist."
-    )]
-    InstallerNotExecutable,
-
-    #[error(
-        "
-        The installer '{package_id}' does not support the current tcli installer protocol.
-            Expected: {our_version:#?}
-            Recieved: {given_version:#?}
-    "
-    )]
-    InstallerBadVersion {
-        package_id: String,
-        given_version: Version,
-        our_version: Version,
-    },
-
-    #[error(
-        "The installer '{package_id}' did not respond correctly:
-        \t{message}"
-    )]
-    InstallerBadResponse { package_id: String, message: String },
-
-    #[error("The installer returned an error:\n\t{message}")]
-    InstallerError { message: String },
-
-    #[error(
-        "The provided game id '{0}' does not exist or has not been imported into this profile."
-    )]
-    BadGameId(String),
-
-    #[error("The Steam app with id '{0}' could not be found.")]
-    SteamAppNotFound(u32),
+impl From<zip::result::ZipError> for Error {
+    fn from(value: zip::result::ZipError) -> Self {
+        Self::Io(IoError::ZipError(value))
+    }
 }
 
 pub trait IoResultToTcli<R> {
-    fn map_fs_error(self, path: impl AsRef<Path>) -> Result<R, Error>;
+    fn map_fs_error(self, path: impl AsRef<Path>) -> Result<R, IoError>;
 }
 
 impl<R> IoResultToTcli<R> for Result<R, std::io::Error> {
-    fn map_fs_error(self, path: impl AsRef<Path>) -> Result<R, Error> {
-        self.map_err(|e| Error::FileIoError(path.as_ref().into(), e))
+    fn map_fs_error(self, path: impl AsRef<Path>) -> Result<R, IoError> {
+        self.map_err(|e| IoError::Native(e, Some(path.as_ref().into())))
     }
 }
 
 pub trait ReqwestToTcli: Sized {
-    async fn error_for_status_tcli(self) -> Result<Self, Error>;
+    async fn error_for_status_tcli(self) -> Result<Self, ApiError>;
 }
 
 impl ReqwestToTcli for reqwest::Response {
-    async fn error_for_status_tcli(self) -> Result<Self, Error> {
+    async fn error_for_status_tcli(self) -> Result<Self, ApiError> {
         match self.error_for_status_ref() {
             Ok(_) => Ok(self),
-            Err(err) => Err(Error::ApiError {
+            Err(err) => Err(ApiError::BadRequest {
                 source: err,
                 response_body: self.text().await.ok(),
             }),
         }
-    }
-}
-
-impl From<walkdir::Error> for Error {
-    fn from(value: walkdir::Error) -> Self {
-        Self::FileIoError(
-            value.path().unwrap_or(Path::new("")).into(),
-            value.into_io_error().unwrap(),
-        )
     }
 }

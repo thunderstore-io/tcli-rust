@@ -11,9 +11,11 @@ use self::api::{Request, TrackedFile};
 use self::api::Response;
 use self::api::PROTOCOL_VERSION;
 use self::manifest::InstallerManifest;
+use super::error::PackageError;
 use super::Package;
+use crate::error::IoError;
+use crate::error::Error;
 use crate::ui::reporter::{Progress, VoidProgress, ProgressBarTrait};
-use crate::Error;
 
 pub mod api;
 mod legacy_compat;
@@ -37,7 +39,7 @@ impl Installer {
         let manifest = {
             let path = cache_dir.join("installer.json");
             if !path.is_file() {
-                Err(Error::InstallerNoManifest)?
+                Err(PackageError::InstallerNoManifest)?
             } else {
                 let contents = fs::read_to_string(path)?;
                 serde_json::from_str::<InstallerManifest>(&contents)?
@@ -54,7 +56,7 @@ impl Installer {
             .find(|x| {
                 x.architecture.to_string() == current_arch && x.target_os.to_string() == current_os
             })
-            .ok_or(Error::InstallerNotExecutable)?;
+            .ok_or(PackageError::InstallerNotExecutable)?;
 
         let exec_path = {
             let abs = cache_dir.join(&matrix.executable);
@@ -62,7 +64,7 @@ impl Installer {
             if abs.is_file() {
                 Ok(abs)
             } else {
-                Err(crate::Error::FileNotFound(abs))
+                Err(IoError::FileNotFound(abs))
             }
         }?;
 
@@ -71,14 +73,14 @@ impl Installer {
         // Validate that the installer is (a) executable and (b) is using a valid protocol version.
         let response = installer.run(&Request::Version).await?;
         let Response::Version { author: _, identifier: _, protocol } = response else {
-            Err(Error::InstallerBadResponse {
+            Err(PackageError::InstallerBadResponse {
                 package_id: package.identifier.to_string(),
                 message: "The installer did not respond with a valid or otherwise serializable Version response variant.".to_string(),
             })?
         };
 
         if protocol.major != PROTOCOL_VERSION.major {
-            Err(Error::InstallerBadVersion {
+            Err(PackageError::InstallerBadVersion {
                 package_id: package.identifier.to_string(),
                 given_version: protocol,
                 our_version: PROTOCOL_VERSION,
@@ -96,23 +98,23 @@ impl Installer {
                 "TCLI_INSTALLER_OVERRIDE is set to {}, which does not point to a file that actually exists.", override_installer.to_str().unwrap()
             )
         }
-        
+
         Installer {
             exec_path: override_installer
         }
     }
 
     pub async fn install_package(
-        &self, 
-        package: &Package, 
-        package_dir: &Path, 
-        state_dir: &Path, 
-        staging_dir: &Path, 
+        &self,
+        package: &Package,
+        package_dir: &Path,
+        state_dir: &Path,
+        staging_dir: &Path,
         reporter: &dyn ProgressBarTrait
-    ) -> Result<Vec<TrackedFile>, Error> {  
+    ) -> Result<Vec<TrackedFile>, Error> {
         // Determine if the package is a modloader or not.
         let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
-                
+
         let request = Request::PackageInstall {
             is_modloader,
             package: package.identifier.clone(),
@@ -129,7 +131,7 @@ impl Installer {
             package.identifier.version.to_string().truecolor(90, 90, 90)
         );
         reporter.set_message(format!("Installing {progress_message}"));
-        
+
         let response = self.run(&request).await?;
         match response {
             Response::PackageInstall { tracked_files, post_hook_context: _ } => {
@@ -137,14 +139,14 @@ impl Installer {
             }
 
             Response::Error { message } => {
-                Err(Error::InstallerError { message  })
+                Err(PackageError::InstallerError { message })?
             }
 
             x => {
-                let message = 
+                let message =
                     format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
-                
-                Err(Error::InstallerBadResponse { package_id: package.identifier.to_string(), message })
+
+                Err(PackageError::InstallerBadResponse { package_id: package.identifier.to_string(), message })?
             }
         }
     }
@@ -180,12 +182,12 @@ impl Installer {
         let response = self.run(&request).await?;
         match response {
             Response::PackageUninstall { post_hook_context: _ } => Ok(()),
-            Response::Error { message } => Err(Error::InstallerError { message }),
+            Response::Error { message } => Err(PackageError::InstallerError { message })?,
             x => {
                 let message =
                     format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
 
-                Err(Error::InstallerBadResponse { package_id: package.identifier.to_string(), message })
+                Err(PackageError::InstallerBadResponse { package_id: package.identifier.to_string(), message })?
             }
         }
     }
@@ -211,13 +213,13 @@ impl Installer {
 
     pub async fn run(&self, arg: &Request) -> Result<Response, Error> {
         let args_json = serde_json::to_string(arg)?;
-        
+
         let child = Command::new(&self.exec_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .arg(&args_json)
             .spawn()?;
-        
+
         // Execute the installer, capturing and deserializing any output.
         // TODO: Safety check here to warn / stop an installer from blowing up the heap.
         let mut output_str = String::new();

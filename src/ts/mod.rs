@@ -9,6 +9,7 @@ pub mod package_manifest;
 pub mod package_reference;
 pub mod v1;
 pub mod version;
+pub mod error;
 
 pub struct RepositoryUrl(OnceCell<String>);
 

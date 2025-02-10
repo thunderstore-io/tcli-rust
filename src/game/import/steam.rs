@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use steamlocate::SteamDir;
 
-use super::{Error, GameImporter, ImportBase};
+use super::{GameImporter, ImportBase};
+use crate::error::Error;
+use crate::game::error::GameError;
 use crate::game::registry::{ActiveDistribution, GameData};
 use crate::ts::v1::models::ecosystem::GameDefPlatform;
 
@@ -39,9 +41,9 @@ impl GameImporter for SteamImporter {
                     .map_or_else(SteamDir::locate, |x| SteamDir::from_dir(x))
                     .map_err(|e: steamlocate::Error| match e {
                         steamlocate::Error::InvalidSteamDir(_) => {
-                            Error::SteamDirBadPath(self.steam_dir.as_ref().unwrap().to_path_buf())
+                            GameError::SteamDirBadPath(self.steam_dir.as_ref().unwrap().to_path_buf())
                         }
-                        steamlocate::Error::FailedLocate(_) => Error::SteamDirNotFound,
+                        steamlocate::Error::FailedLocate(_) => GameError::SteamDirNotFound,
                         _ => unreachable!(),
                     })?;
 
@@ -54,14 +56,14 @@ impl GameImporter for SteamImporter {
                         )
                     })
                     .ok_or_else(|| {
-                        Error::SteamAppNotFound(self.appid, steam.path().to_path_buf())
+                        GameError::SteamAppNotFound(self.appid, steam.path().to_path_buf())
                     })?;
                 lib.resolve_app_dir(&app)
             }
         };
 
         if !app_dir.is_dir() {
-            Err(Error::SteamDirNotFound)?;
+            Err(GameError::SteamDirNotFound)?;
         }
 
         let r2mm = base.game_def.r2modman.as_ref().expect(
@@ -74,8 +76,10 @@ impl GameImporter for SteamImporter {
             .map(|x| app_dir.join(x))
             .find(|x| x.is_file())
             .ok_or_else(|| {
-                super::Error::ExeNotFound(base.game_def.label.clone(), app_dir.clone())
-            })?;
+                GameError::ExeNotFound {
+                    possible_names: r2mm.exe_names.clone(),
+                    base_path: app_dir.clone(),
+            }})?;
 
         let dist = ActiveDistribution {
             dist: GameDefPlatform::Steam {

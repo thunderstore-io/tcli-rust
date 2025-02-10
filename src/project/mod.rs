@@ -7,13 +7,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use colored::Colorize;
+use error::ProjectError;
 use futures::future::try_join_all;
 pub use publish::publish;
 use tokio::sync::Semaphore;
 use zip::write::FileOptions;
 
 use self::lock::LockFile;
-use crate::error::{Error, IoResultToTcli};
+use crate::error::{IoError, IoResultToTcli, Error};
 use crate::game::registry::GameData;
 use crate::game::{proc, registry};
 use crate::package::index::PackageIndex;
@@ -34,6 +35,7 @@ pub mod manifest;
 pub mod overrides;
 mod publish;
 mod state;
+pub mod error;
 
 pub enum ProjectKind {
     Dev(ProjectOverrides),
@@ -78,7 +80,7 @@ impl Project {
     pub fn validate(&self) -> Result<(), Error> {
         // A directory without a manifest is *not* a project.
         if !self.manifest_path.is_file() {
-            Err(Error::NoProjectFile(self.manifest_path.to_path_buf()))?;
+            Err(ProjectError::NoProjectFile(self.manifest_path.to_path_buf()))?;
         }
 
         // Everything within .tcli is assumed to be replacable. Therefore we only care
@@ -86,7 +88,7 @@ impl Project {
         let dotdir = self.base_dir.join(".tcli");
         if !dotdir.is_dir() {
             fs::create_dir(dotdir)?;
-        } 
+        }
 
         Ok(())
     }
@@ -118,7 +120,7 @@ impl Project {
         project_kind: ProjectKind,
     ) -> Result<Project, Error> {
         if project_dir.is_file() {
-            return Err(Error::ProjectDirIsFile(project_dir.into()));
+            Err(IoError::DirectoryIsFile(project_dir.into()))?;
         }
 
         if !project_dir.is_dir() {
@@ -146,9 +148,9 @@ impl Project {
         let mut manifest_file = match options.open(&manifest_path) {
             Ok(x) => Ok(x),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                Err(Error::ProjectAlreadyExists(manifest_path.clone()))
+                Err(ProjectError::ProjectAlreadyExists(manifest_path.clone()))
             }
-            Err(e) => Err(Error::FileIoError(manifest_path.to_path_buf(), e)),
+            Err(e) => Err(IoError::Native(e, Some(manifest_path.to_path_buf())))?,
         }?;
 
         write!(
@@ -196,7 +198,7 @@ impl Project {
                 .write_all(include_bytes!("../../resources/icon.png"))
                 .unwrap(),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
-            Err(e) => Err(Error::FileIoError(icon_path, e))?,
+            Err(e) => Err(IoError::Native(e, Some(icon_path)))?,
         }
 
         let readme_path = project_dir.join("README.md");
@@ -211,7 +213,7 @@ impl Project {
                 package.namespace, package.name, package.description
             )?,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(Error::FileIoError(readme_path, e)),
+            Err(e) => Err(IoError::Native(e, Some(readme_path)))?,
         }
 
         let dist_dir = project.base_dir.join("dist");
@@ -509,7 +511,7 @@ impl Project {
         args: Vec<String>,
     ) -> Result<(), Error> {
         let game_data = registry::get_game_data(&self.game_registry_path, game_id)
-            .ok_or_else(|| Error::InvalidGameId(game_id.to_string()))?;
+            .ok_or_else(|| ProjectError::InvalidGameId(game_id.to_string()))?;
         let game_dist = game_data.active_distribution;
         let game_dir = &game_dist.game_dir;
 
@@ -567,13 +569,13 @@ impl Project {
 
     pub fn stop_game(&self, game_id: &str) -> Result<(), Error> {
         let game_data = registry::get_game_data(&self.game_registry_path, game_id)
-            .ok_or_else(|| Error::BadGameId(game_id.to_string()))?;
+            .ok_or_else(|| ProjectError::InvalidGameId(game_id.to_string()))?;
 
         let mut pid_file = self.base_dir.join(".tcli").join(game_data.identifier);
         pid_file.set_extension("pid");
 
         if !pid_file.is_file() {
-            Err(Error::FileNotFound(pid_file.clone()))?;
+            Err(IoError::FileNotFound(pid_file.clone()))?;
         }
 
         let pid = fs::read_to_string(&pid_file)?.parse::<usize>().unwrap();
@@ -596,18 +598,18 @@ impl Project {
         let package = manifest
             .package
             .as_ref()
-            .ok_or(Error::MissingTable("package"))?;
+            .ok_or(ProjectError::MissingTable("package"))?;
 
         let build = manifest
             .build
             .as_ref()
-            .ok_or(Error::MissingTable("build"))?;
+            .ok_or(ProjectError::MissingTable("build"))?;
 
         let output_dir = project_dir.join(&build.outdir);
         match fs::create_dir_all(&output_dir) {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-            Err(e) => Err(Error::FileIoError(output_dir.clone(), e)),
+            Err(e) => Err(IoError::Native(e, Some(output_dir.clone()))),
         }?;
 
         let output_path = output_dir.join(format!(
@@ -628,7 +630,7 @@ impl Project {
 
             // first elem is always the root, even when the path given is to a file
             for file in walkdir::WalkDir::new(&source_path).follow_links(true) {
-                let file = file?;
+                let file = file.map_err(IoError::DirWalker)?;
 
                 let inner_path = file
                     .path()
