@@ -11,7 +11,7 @@ use error::ProjectError;
 use futures::future::try_join_all;
 pub use publish::publish;
 use tokio::sync::Semaphore;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 
 use self::lock::LockFile;
 use crate::error::{IoError, IoResultToTcli, Error};
@@ -640,12 +640,12 @@ impl Project {
                 if file.file_type().is_dir() {
                     zip.add_directory(
                         copy.target.join(inner_path).to_string_lossy(),
-                        FileOptions::default(),
+                        SimpleFileOptions::default(),
                     )?;
                 } else if file.file_type().is_file() {
                     zip.start_file(
                         copy.target.join(inner_path).to_string_lossy(),
-                        FileOptions::default(),
+                        SimpleFileOptions::default(),
                     )?;
                     std::io::copy(
                         &mut File::open(file.path()).map_fs_error(file.path())?,
@@ -657,7 +657,7 @@ impl Project {
             }
         }
 
-        zip.start_file("manifest.json", FileOptions::default())?;
+        zip.start_file("manifest.json", SimpleFileOptions::default())?;
         write!(
             zip,
             "{}",
@@ -669,14 +669,14 @@ impl Project {
         )?;
 
         let icon_path = project_dir.join(&build.icon);
-        zip.start_file("icon.png", FileOptions::default())?;
+        zip.start_file("icon.png", SimpleFileOptions::default())?;
         std::io::copy(
             &mut File::open(&icon_path).map_fs_error(icon_path)?,
             &mut zip,
         )?;
 
         let readme_path = project_dir.join(&build.readme);
-        zip.start_file("README.md", FileOptions::default())?;
+        zip.start_file("README.md", SimpleFileOptions::default())?;
         write!(
             zip,
             "{}",
