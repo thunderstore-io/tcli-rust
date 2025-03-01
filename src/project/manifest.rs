@@ -8,17 +8,19 @@ use crate::project::overrides::ProjectOverrides;
 use crate::ts::package_reference::{self, PackageReference};
 use crate::ts::version::Version;
 
+use super::error::ProjectError;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ProjectManifest {
     pub config: ConfigData,
     pub package: Option<PackageData>,
     pub build: Option<BuildData>,
-    
+
     pub publish: Option<Vec<PublishData>>,
-    
+
     #[serde(flatten)]
     pub dependencies: DependencyData,
-    
+
     #[serde(skip)]
     pub project_dir: Option<PathBuf>,
 }
@@ -51,10 +53,10 @@ impl ProjectManifest {
 
     pub fn read_from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
-        let text = fs::read_to_string(path).map_err(|_| Error::NoProjectFile(path.into()))?;
-      
+        let text = fs::read_to_string(path).map_err(|_| ProjectError::NoProjectFile(path.into()))?;
+
         let mut manifest: ProjectManifest = toml::from_str(&text)?;
-        
+
         manifest.project_dir = Some(
             path.parent()
                 .map(|p| p.to_path_buf())
@@ -76,8 +78,8 @@ impl ProjectManifest {
             let package = self
                 .package
                 .as_mut()
-                .ok_or(Error::MissingTable("package"))?;
-            
+                .ok_or(ProjectError::MissingTable("package"))?;
+
             if let Some(namespace) = overrides.namespace {
                 package.namespace = namespace;
             }
@@ -91,7 +93,7 @@ impl ProjectManifest {
         if let Some(output_dir) = overrides.output_dir {
             self.build
                 .as_mut()
-                .ok_or(Error::MissingTable("build"))?
+                .ok_or(ProjectError::MissingTable("build"))?
                 .outdir = output_dir;
         }
         if let Some(repository) = overrides.repository {
@@ -201,7 +203,7 @@ pub struct DependencyData {
     #[serde(default)]
     #[serde(with = "package_reference::ser::table")]
     pub dependencies: Vec<PackageReference>,
-    
+
     #[serde(default)]
     #[serde(rename = "dev-dependencies")]
     #[serde(with = "package_reference::ser::table")]

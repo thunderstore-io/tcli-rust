@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::error::{Error, IoResultToTcli};
+use crate::error::{IoResultToTcli, Error};
 
 pub struct TempFile<F>(Option<PathBuf>, Option<F>);
 

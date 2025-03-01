@@ -4,7 +4,7 @@ use std::path::Path;
 use md5::{Digest, Md5};
 use md5::digest::FixedOutput;
 use walkdir::WalkDir;
-use crate::error::Error;
+use crate::error::{IoError, Error};
 
 pub fn md5(file: &Path) -> Result<String, Error> {
     let mut md5 = Md5::new();
@@ -17,7 +17,7 @@ pub fn md5(file: &Path) -> Result<String, Error> {
 // Recursively remove empty directories starting at a given path.
 pub fn remove_empty_dirs(root: &Path, remove_root: bool) -> Result<(), Error> {
     if root.is_file() || !root.exists() {
-        Err(Error::DirectoryNotFound(root.to_path_buf()))?;
+        Err(IoError::DirNotFound(root.to_path_buf()))?;
     }
 
     let dirs = WalkDir::new(root)
@@ -57,7 +57,7 @@ pub fn remove_empty_dirs(root: &Path, remove_root: bool) -> Result<(), Error> {
 }
 
 /// Read buf.len() bytes at the offset within the file.
-/// 
+///
 /// This function exists to ameliorate the differences in which Windows and Unix platforms
 /// implement file offset reads.
 pub fn read_offset(file: &File, buf: &mut [u8], offset: u64) -> Result<usize, std::io::Error> {

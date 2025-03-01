@@ -5,7 +5,7 @@ use futures::io::{self, BufReader, ErrorKind};
 use futures_util::Stream;
 use serde::{Serialize, Deserialize};
 
-use crate::Error;
+use crate::error::{IoError, Error};
 use crate::ts::package_reference::PackageReference;
 use crate::ts::{CLIENT, EX};
 use crate::ts::version::Version;
@@ -26,7 +26,7 @@ pub async fn get_index() -> Result<Vec<PackageIndexEntry>, Error> {
 		.get(format!("{EX}/package-index"))
 		.send().await?
 		.error_for_status()?;
-	
+
 	let reader = response
 		.bytes_stream()
 		.map_err(|e| io::Error::new(ErrorKind::Other, e))
@@ -40,7 +40,7 @@ pub async fn get_index() -> Result<Vec<PackageIndexEntry>, Error> {
 	while let Some(line) = lines.next().await {
 		let line = line?;
 		let parsed = serde_json::from_str(&line)?;
-		
+
 		entries.push(parsed);
 	}
 
@@ -52,7 +52,7 @@ pub async fn get_index_streamed() -> Result<impl Stream<Item = Result<PackageInd
 		.get(format!("{EX}/package-index"))
 		.send().await?
 		.error_for_status()?;
-	
+
 	let reader = response
 		.bytes_stream()
 		.map_err(|e| io::Error::new(ErrorKind::Other, e))
@@ -63,13 +63,13 @@ pub async fn get_index_streamed() -> Result<impl Stream<Item = Result<PackageInd
 		.lines()
 		.map(|x| match x {
 			Ok(x) => serde_json::from_str(&x).map_err(|e| e.into()),
-			Err(e) => Err(Error::GenericIoError(e))
+			Err(e) => Err(Error::Io(IoError::Native(e, None)))
 		});
 
 	Ok(lines)
 }
 
-pub async fn get_index_streamed_raw() -> Result<impl Stream<Item = Result<String, Error>>, Error> {
+pub async fn get_index_streamed_raw() -> Result<impl Stream<Item = Result<String, IoError>>, Error> {
 	let response = CLIENT
 		.get(format!("{EX}/package-index"))
 		.send().await?
@@ -84,7 +84,7 @@ pub async fn get_index_streamed_raw() -> Result<impl Stream<Item = Result<String
 		.lines()
 		.map(|x| match x {
 			Ok(x) => Ok(x),
-			Err(e) => Err(Error::GenericIoError(e))
+			Err(e) => Err(IoError::Native(e, None)),
 		});
 
 	Ok(lines)

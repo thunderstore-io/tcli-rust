@@ -1,7 +1,8 @@
-mod cache;
+pub mod cache;
 pub mod index;
 pub mod install;
 pub mod resolver;
+pub mod error;
 
 use std::borrow::Borrow;
 use std::fs::File;
@@ -15,7 +16,7 @@ use serde_with::{self, serde_as, DisplayFromStr};
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::error::{Error, IoResultToTcli};
+use crate::error::{IoError, IoResultToTcli, Error};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::{self, CLIENT};
@@ -50,7 +51,7 @@ pub struct Package {
 }
 
 impl Package {
-    /// Attempt to resolve the package from the local cache or remote. 
+    /// Attempt to resolve the package from the local cache or remote.
     /// This does not download the package, it just finds its "source".
     pub async fn from_any(ident: impl Borrow<PackageReference>) -> Result<Self, Error> {
         if cache::get_cache_location(ident.borrow()).exists() {
@@ -154,7 +155,7 @@ impl Package {
         };
         let icon = package_dir.join("icon.png");
         let reference = package_dir.file_name().unwrap().to_string_lossy().to_string();
-        
+
         Ok(Some(PackageMetadata {
             manifest,
             reference,
@@ -215,11 +216,14 @@ fn add_to_cache(package: &PackageReference, zipfile: impl Read + Seek) -> Result
     match std::fs::remove_dir_all(&output_path) {
         Ok(_) => (),
         Err(e) if e.kind() == ErrorKind::NotFound => (),
-        Err(e) => return Err(e).map_fs_error(&output_path),
+        Err(e) => Err(e).map_fs_error(&output_path)?,
     };
 
     std::fs::create_dir_all(&output_path).map_fs_error(&output_path)?;
-    zip::read::ZipArchive::new(zipfile)?.extract(&output_path)?;
+    zip::read::ZipArchive::new(zipfile)
+        .map_err(IoError::ZipError)?
+        .extract(&output_path)
+        .map_err(IoError::ZipError)?;
 
     Ok(output_path)
 }

@@ -13,7 +13,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
 use crate::util::file;
-use crate::error::Error;
+use crate::error::{IoError, Error};
 use crate::ts::experimental;
 use crate::ts::experimental::index::PackageIndexEntry;
 use crate::ts::package_reference::PackageReference;
@@ -25,7 +25,7 @@ struct IndexHeader {
 }
 
 /// An index which contains packages and optimized methods to query them.
-/// 
+///
 /// Structurally this refers to three separate files, all contained within TCLI_HOME/index by default.
 /// 1. The package header `IndexHeader`. This contains index metadata like last update time, etc.
 /// 2. The package lookup table, `IndexLookup`. This is a fast-lookup datastructure which binds
@@ -37,7 +37,7 @@ pub struct PackageIndex {
 
     // Yes, we're continuing this naming scheme. Why? I can't come up with anything better.
     tight_lookup: HashMap<String, usize>,
-    loose_lookup: HashMap<String, Vec<usize>>, 
+    loose_lookup: HashMap<String, Vec<usize>>,
 
     index_file: File,
 }
@@ -57,7 +57,7 @@ struct LookupTableEntry {
 
 impl PackageIndex {
     /// Determine if the package index requires an update.
-    /// 
+    ///
     /// An update is requires if any of the following conditions are true:
     /// - Index version is less than the remote version
     /// - Index does not exist
@@ -78,13 +78,13 @@ impl PackageIndex {
     }
 
     /// Syncronize the local and remote package index.
-    /// 
+    ///
     /// This will syncronize regardless of local and remote update timestamps.
     /// Use `PackageIndex::requires_update` to determine if an index update is actually required.
     pub async fn sync(tcli_home: &Path) -> Result<(), Error> {
         // Assert internal file structure.
         if !tcli_home.is_dir() {
-            Err(Error::DirectoryNotFound(tcli_home.into()))?;
+            Err(IoError::DirNotFound(tcli_home.into()))?;
         }
 
         let index_dir = tcli_home.join("index");
@@ -132,7 +132,7 @@ impl PackageIndex {
 
             index_out.write_all(chunk.as_bytes()).await?;
         }
-        
+
         let header_path = index_dir.join("header.json");
         let header = IndexHeader {
             update_time: experimental::index::get_index_update_time().await?
@@ -205,7 +205,7 @@ impl PackageIndex {
             .iter()
             .filter_map(|x| self.lookup.get(*x))
             .filter_map(|x| self.read_index_string(x).ok())
-            .map(|x| serde_json::from_str(&x))
+            .map(|ref x| serde_json::from_str(x))
             .collect::<Result<Vec<PackageIndexEntry>, _>>();
 
         if let Err(ref e) = pkgs {

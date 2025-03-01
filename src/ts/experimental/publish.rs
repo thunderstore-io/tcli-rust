@@ -12,6 +12,7 @@ use reqwest::{header, Body};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::error::{Error, IoResultToTcli, ReqwestToTcli};
+use crate::ts::error::ApiError;
 use crate::ts::experimental::models::publish::*;
 use crate::ts::{AUTH, CLIENT, EX};
 use crate::ui::PROGRESS_STYLE;
@@ -23,7 +24,7 @@ pub async fn usermedia_initiate(
         .post(format!("{EX}/usermedia/initiate-upload/"))
         .header(
             header::AUTHORIZATION,
-            AUTH.get().ok_or(Error::MissingAuthToken)?,
+            AUTH.get().ok_or(ApiError::MissingAuthToken)?,
         )
         .json(params)
         .send()
@@ -42,7 +43,7 @@ pub async fn usermedia_finish(
         .post(format!("{EX}/usermedia/{uuid}/finish-upload/"))
         .header(
             header::AUTHORIZATION,
-            AUTH.get().ok_or(Error::MissingAuthToken)?,
+            AUTH.get().ok_or(ApiError::MissingAuthToken)?,
         )
         .json(params)
         .send()
@@ -57,7 +58,7 @@ pub async fn usermedia_abort(uuid: String) -> Result<(), Error> {
         .post(format!("{EX}/usermedia/{uuid}/abort-upload/"))
         .header(
             header::AUTHORIZATION,
-            AUTH.get().ok_or(Error::MissingAuthToken)?,
+            AUTH.get().ok_or(ApiError::MissingAuthToken)?,
         )
         .send()
         .await?
@@ -168,7 +169,7 @@ pub async fn package_submit(
         .post(format!("{EX}/submission/submit/"))
         .header(
             header::AUTHORIZATION,
-            AUTH.get().ok_or(Error::MissingAuthToken)?,
+            AUTH.get().ok_or(ApiError::MissingAuthToken)?,
         )
         .json(params)
         .send()

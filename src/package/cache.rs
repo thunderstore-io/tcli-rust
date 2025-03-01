@@ -3,10 +3,10 @@ use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
 
-use crate::error::IoResultToTcli;
+use crate::error::{IoResultToTcli, Error};
 use crate::ts::package_reference::PackageReference;
 use crate::util::TempFile;
-use crate::{Error, TCLI_HOME};
+use crate::TCLI_HOME;
 
 static CACHE_LOCATION: Lazy<PathBuf> = Lazy::new(|| TCLI_HOME.join("package_cache"));
 
@@ -20,4 +20,8 @@ pub async fn get_temp_zip_file(
 
 pub fn get_cache_location(package: &PackageReference) -> PathBuf {
     CACHE_LOCATION.join(package.to_string())
+}
+
+pub fn is_cached(package: &PackageReference) -> bool {
+    CACHE_LOCATION.join(package.to_string()).exists()
 }

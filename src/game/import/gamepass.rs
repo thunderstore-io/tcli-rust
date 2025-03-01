@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use super::Error;
 use super::{GameImporter, ImportBase};
+use crate::error::Error;
+use crate::game::error::GameError;
 use crate::game::registry::{ActiveDistribution, GameData};
 use crate::ts::v1::models::ecosystem::GameDefPlatform;
 use crate::util::reg::{self, HKey};
@@ -26,7 +27,7 @@ impl GameImporter for GamepassImporter {
             .into_iter()
             .find(|x| x.key.starts_with(&self.ident))
             .ok_or_else(|| {
-                super::Error::NotFound(base.game_def.label.clone(), "Gamepass".to_string())
+                GameError::NotFound(base.game_def.label.clone(), "Gamepass".to_string())
             })?
             .val
             .replace('\"', "");
@@ -35,7 +36,7 @@ impl GameImporter for GamepassImporter {
             .into_iter()
             .next()
             .ok_or_else(|| {
-                super::Error::NotFound(base.game_def.label.clone(), "Gamepass".to_string())
+                GameError::NotFound(base.game_def.label.clone(), "Gamepass".to_string())
             })?;
         let game_dir = PathBuf::from(reg::get_value_at(HKey::LocalMachine, &game_root, "Root")?);
 
@@ -49,8 +50,10 @@ impl GameImporter for GamepassImporter {
             .clone()
             .or_else(|| super::find_game_exe(&r2mm.exe_names, &game_dir))
             .ok_or_else(|| {
-                super::Error::ExeNotFound(base.game_def.label.clone(), game_dir.clone())
-            })?;
+                GameError::ExeNotFound {
+                    possible_names: r2mm.exe_names.clone(),
+                    base_path: game_dir.clone(),
+            }})?;
         let dist = ActiveDistribution {
             dist: GameDefPlatform::GamePass {
                 identifier: self.ident.to_string(),
