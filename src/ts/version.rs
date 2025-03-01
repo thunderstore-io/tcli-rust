@@ -7,13 +7,13 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
     SerializeDisplay, DeserializeFromStr, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 pub struct Version {
-    pub major: u32,
-    pub minor: u32,
-    pub patch: u32,
+    pub major: u64,
+    pub minor: u64,
+    pub patch: u64,
 }
 
 impl Version {
-    pub const fn new(major: u32, minor: u32, patch: u32) -> Version {
+    pub const fn new(major: u64, minor: u64, patch: u64) -> Version {
         Version {
             major,
             minor,
@@ -34,12 +34,12 @@ impl FromStr for Version {
     type Err = VersionParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let [major, minor, patch]: [u32; 3] = s
+        let [major, minor, patch]: [u64; 3] = s
             .splitn(3, '.')
             .map(|n| n.parse())
             .collect::<Result<Vec<_>, _>>()?
             .try_into()
-            .map_err(|v: Vec<u32>| VersionParseError::DotCount(v.len() - 1))?;
+            .map_err(|v: Vec<u64>| VersionParseError::DotCount(v.len() - 1))?;
 
         Ok(Version {
             major,
