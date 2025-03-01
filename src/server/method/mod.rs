@@ -1,12 +1,22 @@
 pub mod package;
 pub mod project;
 
+use std::sync::RwLock;
+
+use futures::channel::mpsc::Sender;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::project::Project;
+
 use self::package::PackageMethod;
 use self::project::ProjectMethod;
-use super::Error;
+use super::proto::Response;
+use super::{Error, ServerError};
+
+pub trait Routeable {
+    async fn route(&self, ctx: RwLock<Project>, send: Sender<Result<Response, Error>>);
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum Method {
@@ -22,10 +32,10 @@ impl Method {
         let (namespace, name) = (
             split
                 .next()
-                .ok_or_else(|| Error::InvalidMethod(method.into()))?,
+                .ok_or_else(|| ServerError::InvalidMethod(method.into()))?,
             split
                 .next()
-                .ok_or_else(|| Error::InvalidMethod(method.into()))?,
+                .ok_or_else(|| ServerError::InvalidMethod(method.into()))?,
         );
 
         // Route namespaces to the appropriate enum variants for construction.
@@ -33,7 +43,7 @@ impl Method {
             "exit" => Self::Exit,
             "project" => Self::Project(ProjectMethod::from_value(name, value)?),
             "package" => Self::Package(PackageMethod::from_value(name, value)?),
-            x => Err(Error::InvalidMethod(x.into()))?,
+            x => Err(ServerError::InvalidMethod(x.into()))?,
         })
     }
 }

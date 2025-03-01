@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 /// Only one server process can "own" a project at a single time.
 /// We enforce this exclusive access through the creation and deletion of this lockfile.
-const LOCKFILE: &'static str = ".server-lock";
+const LOCKFILE: &str = ".server-lock";
 
 pub struct ProjectLock {
     file: File,
@@ -27,7 +27,7 @@ impl ProjectLock {
 impl Drop for ProjectLock {
     fn drop(&mut self) {
         // The file handle is dropped before this, so we can safely delete it.
-        fs::remove_file(&self.path).unwrap();
+        fs::remove_file(&self.path).expect("Failed to remove lockfile.");
     }
 }
 

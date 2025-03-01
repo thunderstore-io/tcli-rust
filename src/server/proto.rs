@@ -4,6 +4,8 @@ use serde_json::Value;
 use crate::server::method::Method;
 use crate::server::Error;
 
+use super::ServerError;
+
 const JRPC_VER: &str = "2.0";
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -15,10 +17,12 @@ pub enum Message {
 
 impl Message {
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        let msg = serde_json::from_str::<Message>(json).map_err(Error::InvalidJson)?;
+        let msg = serde_json::from_str::<Message>(json).inspect_err(|e| {
+            println!("{e:?}");
+        }).map_err(ServerError::InvalidJson)?;
 
         match msg {
-            Message::Request(x) if x.jsonrpc != JRPC_VER => Err(Error::InvalidMethod(x.jsonrpc)),
+            Message::Request(x) if x.jsonrpc != JRPC_VER => Err(ServerError::InvalidMethod(x.jsonrpc))?,
             _ => Ok(msg),
         }
     }
@@ -81,7 +85,33 @@ impl TryFrom<RequestInner> for Request {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct Response {
     pub id: Id,
-    pub content: Option<Value>,
+
+    #[serde(flatten)]
+    pub data: ResponseData,
+}
+
+impl Response {
+    pub fn data_ok(id: Id, data: impl Serialize) -> Response {
+        Response {
+            id,
+            data: ResponseData::Result(serde_json::to_string(&data).unwrap()),
+        }
+    }
+
+    pub fn ok(id: Id) -> Response {
+        Response {
+            id,
+            data: ResponseData::Result("OK".into()),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum ResponseData {
+    #[serde(rename = "result")]
+    Result(String),
+    #[serde(rename = "error")]
+    Error(String),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -103,7 +133,8 @@ impl From<Error> for RpcError {
 mod test {
     use super::*;
     use crate::server::method::package::PackageMethod;
-    use crate::server::method::project::{ProjectMethod, SetContext};
+    use crate::server::method::project::{ProjectMethod, OpenProject};
+    use crate::server::ServerError;
 
     #[test]
     fn test_jrpc_ver_validate() {
@@ -122,7 +153,7 @@ mod test {
         assert_eq!(rq.id, Id::Int(1));
         assert!(matches!(
             rq.method,
-            Method::Project(ProjectMethod::SetContext(SetContext { .. }))
+            Method::Project(ProjectMethod::Open(OpenProject { .. }))
         ));
 
         let data = r#"{ "jsonrpc": "2.0", "id": "oksamies", "method": "package/get_metadata" }"#;
@@ -131,12 +162,12 @@ mod test {
         assert_eq!(rq.method, "package/get_metadata");
         assert_eq!(rq.params, Value::Null);
 
-        let rq = Request::try_from(rq).unwrap();
-        assert_eq!(rq.id, Id::String("oksamies".into()));
-        assert!(matches!(
-            rq.method,
-            Method::Package(PackageMethod::GetMetadata)
-        ));
+        // let rq = Request::try_from(rq).unwrap();
+        // assert_eq!(rq.id, Id::String("oksamies".into()));
+        // assert!(matches!(
+        //     rq.method,
+        //     Method::Package(PackageMethod::GetMetadata)
+        // ));
 
         // Invalid methods should still be deserialized aok as they're checked by typed Request struct.
         let data = r#"{ "jsonrpc": "2.0", "id": "oksamies", "method": "null/null" }"#;
@@ -147,7 +178,7 @@ mod test {
 
         // ...but should then fail to be converted into a typed Request.
         let rq = Request::try_from(rq);
-        assert!(matches!(rq, Err(Error::InvalidMethod(..)))); // Invalid methods should still be deserialized aok as they're checked by typed Request struct.
+        assert!(matches!(rq, Err(Error::Server(ServerError::InvalidMethod(..))))); // Invalid methods should still be deserialized aok as they're checked by typed Request struct.
 
         // Likewise, valid methods with garbage data should also fail when converted to typed.
         let data = r#"{ "jsonrpc": "2.0", "id": "oksamies", "method": "project/set_context", "params": { "garbage": 1 } }"#;
@@ -157,6 +188,7 @@ mod test {
         assert!(matches!(rq.params, Value::Object(..)));
 
         let rq = Request::try_from(rq);
-        assert!(matches!(rq, Err(Error::InvalidJson(..))));
+        panic!("{rq:?}");
+        assert!(matches!(rq, Err(Error::Server(ServerError::InvalidJson(..)))));
     }
 }

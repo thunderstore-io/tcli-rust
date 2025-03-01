@@ -8,7 +8,7 @@ use md5::Md5;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::Error;
-use crate::package::Package;
+use crate::package::{Package, PackageMetadata};
 use crate::package::resolver::{DependencyGraph, InnerDepGraph};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -75,6 +75,20 @@ impl LockFile {
         lockfile.write_all(new_contents.as_bytes())?;
 
         Ok(())
+    }
+
+    pub async fn installed_packages(self) -> Result<Vec<PackageMetadata>, Error> {
+        let graph = DependencyGraph::from_graph(self.package_graph);
+        let mut packages = Vec::new();
+
+        for package in graph.digest() {
+            let package = Package::from_any(package).await?;
+            if let Some(meta) = package.get_metadata().await? {
+                packages.push(meta);
+            }
+        }
+
+        Ok(packages)
     }
 }
 

@@ -257,4 +257,10 @@ pub enum Commands {
 
     /// Update the tcli ecosystem schema.
     UpdateSchema,
+
+    /// Start the tcli server.
+    Server {
+        #[clap(long, default_value = "./")]
+        project_path: PathBuf,
+    },
 }

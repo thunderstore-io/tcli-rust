@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::server::ServerError;
 use crate::ts::error::ApiError;
 
 use crate::game::error::GameError;
@@ -22,21 +23,18 @@ pub enum Error {
     Api(#[from] ApiError),
 
     #[error("{0}")]
+    Server(#[from] ServerError),
+
+    #[error("{0}")]
     Io(#[from] IoError),
 
     #[error("{0}")]
-    JsonParse(#[from] serde_json::Error),
-
-    #[error("{0}")]
-    TomlDeserialize(#[from] toml::de::Error),
-
-    #[error("{0}")]
-    TomlSerialize(#[from] toml::ser::Error),
+    Parse(#[from] ParseError),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
-    #[error("A file IO error occured: {0}.")]
+    #[error("A file IO error occurred: {0}.")]
     Native(std::io::Error, Option<PathBuf>),
 
     #[error("File not found: {0}.")]
@@ -64,6 +62,18 @@ pub enum IoError {
     ZipError(#[from] zip::result::ZipError),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("A json parse error occurred: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("A toml serialization error occurred: {0}")]
+    TomlSe(#[from] toml::ser::Error),
+
+    #[error("A toml deserialization error occured: {0}")]
+    TomlDe(#[from] toml::de::Error),
+}
+
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::Io(IoError::Native(value, None))
@@ -79,6 +89,23 @@ impl From<reqwest::Error> for Error {
 impl From<zip::result::ZipError> for Error {
     fn from(value: zip::result::ZipError) -> Self {
         Self::Io(IoError::ZipError(value))
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(value: serde_json::Error) -> Self {
+        Self::Parse(ParseError::Json(value))
+    }
+}
+impl From<toml::de::Error> for Error {
+    fn from(value: toml::de::Error) -> Self {
+        Self::Parse(ParseError::TomlDe(value))
+    }
+}
+
+impl From<toml::ser::Error> for Error {
+    fn from(value: toml::ser::Error) -> Self {
+        Self::Parse(ParseError::TomlSe(value))
     }
 }
 

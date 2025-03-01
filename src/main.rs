@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::io::{self, Stdin};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -31,7 +32,7 @@ mod error;
 mod game;
 mod package;
 mod project;
-// mod server;
+mod server;
 mod ts;
 mod ui;
 mod util;
@@ -338,6 +339,8 @@ async fn main() -> Result<(), Error> {
                 let graph = DependencyGraph::from_graph(lock.package_graph);
 
                 for package in graph.digest() {
+                    println!("{}", package);
+
                     let package = Package::from_any(package).await?;
                     let Some(meta) = package.get_metadata().await? else {
                         continue;
@@ -349,6 +352,13 @@ async fn main() -> Result<(), Error> {
 
                 Ok(())
             }
+        },
+        Commands::Server { project_path }=> {
+            let read = io::stdin();
+            let write = io::stdout();
+            server::spawn(read, write, &project_path).await?;
+
+            Ok(())
         },
     };
 

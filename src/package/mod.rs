@@ -1,4 +1,4 @@
-mod cache;
+pub mod cache;
 pub mod index;
 pub mod install;
 pub mod resolver;

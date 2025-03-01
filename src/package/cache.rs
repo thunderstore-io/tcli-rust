@@ -21,3 +21,7 @@ pub async fn get_temp_zip_file(
 pub fn get_cache_location(package: &PackageReference) -> PathBuf {
     CACHE_LOCATION.join(package.to_string())
 }
+
+pub fn is_cached(package: &PackageReference) -> bool {
+    CACHE_LOCATION.join(package.to_string()).exists()
+}
