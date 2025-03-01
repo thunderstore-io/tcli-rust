@@ -35,8 +35,7 @@ struct IndexHeader {
 pub struct PackageIndex {
     lookup: Vec<LookupTableEntry>,
 
-    // Yes, we're continuing this naming scheme. Why? I can't come up with anything better.
-    tight_lookup: HashMap<String, usize>,
+    strict_lookup: HashMap<String, usize>,
     loose_lookup: HashMap<String, Vec<usize>>,
 
     index_file: File,
@@ -147,6 +146,11 @@ impl PackageIndex {
 
     /// Open and serialize the on-disk index, retrieving a fresh copy if it doesn't already exist.
     pub async fn open(tcli_home: &Path) -> Result<&PackageIndex, Error> {
+        // Sync the index before we open it if it's in an invalid state.
+        if !is_index_valid(tcli_home) {
+            PackageIndex::sync(tcli_home).await?;
+        }
+
         // Maintain a cached version of the index so subsequent calls don't trigger a complete reload.
         static CACHE: OnceCell<PackageIndex> = OnceCell::new();
         if let Some(index) = CACHE.get() {
@@ -160,14 +164,14 @@ impl PackageIndex {
         };
 
         let mut entries = vec![];
-        let mut tight = HashMap::new();
+        let mut strict = HashMap::new();
         let mut loose: HashMap<String, Vec<usize>> = HashMap::new();
 
         // There's likely a more "rusty" way to do this, but this is simple and it works.
         // Note that the ordering will not be consistent across reruns.
         for (index, (pkg_ref, entry)) in lookup.into_iter().enumerate() {
             entries.push(entry);
-            tight.insert(pkg_ref.to_string(), index);
+            strict.insert(pkg_ref.to_string(), index);
 
             let l_ident = pkg_ref.to_loose_ident_string();
             let l_entries = loose.entry(l_ident).or_default();
@@ -179,7 +183,7 @@ impl PackageIndex {
         let index = PackageIndex {
             lookup: entries,
             loose_lookup: loose,
-            tight_lookup: tight,
+            strict_lookup: strict,
             index_file,
         };
         CACHE.set(index).unwrap();
@@ -189,7 +193,7 @@ impl PackageIndex {
 
     /// Get a package which matches the given package reference.
     pub fn get_package(&self, reference: impl Borrow<PackageReference>) -> Option<PackageIndexEntry> {
-        let entry_idx = self.tight_lookup.get(&reference.borrow().to_string())?;
+        let entry_idx = self.strict_lookup.get(&reference.borrow().to_string())?;
         let entry = self.lookup.get(*entry_idx)?;
 
         let index_str = self.read_index_string(entry).ok()?;
@@ -222,4 +226,15 @@ impl PackageIndex {
 
         Ok(String::from_utf8(buffer).unwrap())
     }
+}
+
+/// Determine if the index is in a valid state or not.
+pub fn is_index_valid(tcli_home: &Path) -> bool {
+    let index_dir = tcli_home.join("index");
+
+    let lookup = index_dir.join("lookup.json");
+    let index = index_dir.join("index.json");
+    let header = index_dir.join("header.json");
+
+    index_dir.exists() && lookup.exists() && index.exists() && header.exists()
 }
