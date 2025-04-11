@@ -52,16 +52,17 @@ async fn init_installer_map() -> Result<HashMap<String, String>, Error> {
         ("northstar", "metherul-Northstar_Installer"),
     ]);
 
-    let installer_map = schema
-        .games
-        .into_iter()
-        .filter_map(|(_, def)| def.r2modman)
-        .flat_map(|def| def.mod_loader_packages)
-        .filter_map(|loader| match map.get(loader.loader.as_str()) {
-            Some(installer) => Some((loader.package_id, installer.to_string())),
-            None => None,
-        })
-        .collect::<HashMap<_, _>>();
+    // let installer_map = schema
+    //     .games
+    //     .into_iter()
+    //     .filter_map(|(_, def)| def.r2modman)
+    //     .flat_map(|def| schema.modloader_packages)
+    //     .filter_map(|loader| match map.get(loader.loader.as_str()) {
+    //         Some(installer) => Some((loader.package_id, installer.to_string())),
+    //         None => None,
+    //     })
+    //     .collect::<HashMap<_, _>>();
 
-    Ok(installer_map)
+    // Shim out until we re-integrate the moved modloader_packages ecosystem field.
+    Ok(HashMap::new())
 }

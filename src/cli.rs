@@ -68,6 +68,18 @@ pub enum ListSubcommand {
 }
 
 #[derive(Subcommand, Debug)]
+pub enum ExternSubcommand {
+    /// Get the path of a game with the specified label.
+    GameData {
+        /// The identifier of the game to resolve.
+        ///
+        /// Use the `list` command to query the list of imported and supported games.
+        #[clap(long)]
+        game_id: String,
+    }
+}
+
+#[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Initialize a new project configuration.
     Init {
@@ -262,5 +274,11 @@ pub enum Commands {
     Server {
         #[clap(long, default_value = "./")]
         project_path: PathBuf,
+    },
+
+    /// Commands for use by external tooling.
+    Extern {
+        #[clap(subcommand)]
+        command: ExternSubcommand,
     },
 }

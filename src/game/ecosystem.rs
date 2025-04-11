@@ -9,23 +9,19 @@ use crate::TCLI_HOME;
 pub async fn get_schema() -> Result<EcosystemSchema, Error> {
     let local_schema = TCLI_HOME.join("ecosystem_schema.json");
 
-    match local_schema.is_file() {
-        true => {
-            let schema_file = File::open(&local_schema)?;
-            let reader = BufReader::new(&schema_file);
+    if local_schema.is_file() {
+        let schema_file = File::open(&local_schema)?;
+        let reader = BufReader::new(&schema_file);
 
-            Ok(serde_json::from_reader(reader).unwrap())
-        }
+        Ok(serde_json::from_reader(reader).unwrap())
+    } else {
+        let schema_file = File::create(&local_schema)?;
+        let schema = ecosystem::get_schema().await?;
 
-        false => {
-            let schema_file = File::create(&local_schema)?;
-            let schema = ecosystem::get_schema().await?;
+        let schema_writer = BufWriter::new(&schema_file);
+        serde_json::to_writer_pretty(schema_writer, &schema).unwrap();
 
-            let schema_writer = BufWriter::new(&schema_file);
-            serde_json::to_writer_pretty(schema_writer, &schema).unwrap();
-
-            Ok(schema)
-        }
+        Ok(schema)
     }
 }
 
