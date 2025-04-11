@@ -15,9 +15,9 @@ pub async fn get_schema() -> Result<EcosystemSchema, Error> {
 
         Ok(serde_json::from_reader(reader).unwrap())
     } else {
-        let schema_file = File::create(&local_schema)?;
         let schema = ecosystem::get_schema().await?;
 
+        let schema_file = File::create(&local_schema)?;
         let schema_writer = BufWriter::new(&schema_file);
         serde_json::to_writer_pretty(schema_writer, &schema).unwrap();
 
