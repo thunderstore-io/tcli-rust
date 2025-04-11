@@ -24,5 +24,8 @@ pub async fn get_community_all(community: &str) -> Result<Vec<PackageListing>, E
 }
 
 pub fn download_for_package(ident: &PackageReference) -> String {
-    format!("https://thunderstore.io/package/download/{}/{}/{}/", ident.namespace, ident.name, ident.version)
+    format!(
+        "https://thunderstore.io/package/download/{}/{}/{}/",
+        ident.namespace, ident.name, ident.version
+    )
 }

@@ -1,10 +1,12 @@
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
-use md5::{Digest, Md5};
+
 use md5::digest::FixedOutput;
+use md5::{Digest, Md5};
 use walkdir::WalkDir;
-use crate::error::{IoError, Error};
+
+use crate::error::{Error, IoError};
 
 pub fn md5(file: &Path) -> Result<String, Error> {
     let mut md5 = Md5::new();

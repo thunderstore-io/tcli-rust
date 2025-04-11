@@ -14,7 +14,7 @@ use crate::game::import::ea::EaImporter;
 use crate::game::import::egs::EgsImporter;
 use crate::game::import::gamepass::GamepassImporter;
 use crate::game::import::steam::SteamImporter;
-use crate::ts::v1::models::ecosystem::{ GameDef, GameDefPlatform };
+use crate::ts::v1::models::ecosystem::{GameDef, GameDefPlatform};
 
 pub trait GameImporter {
     fn construct(self: Box<Self>, base: ImportBase) -> Result<GameData, Error>;

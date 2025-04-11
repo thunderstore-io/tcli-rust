@@ -4,12 +4,12 @@ use once_cell::sync::{Lazy, OnceCell};
 use reqwest::header::HeaderValue;
 use reqwest::Client;
 
+pub mod error;
 pub mod experimental;
 pub mod package_manifest;
 pub mod package_reference;
 pub mod v1;
 pub mod version;
-pub mod error;
 
 pub struct RepositoryUrl(OnceCell<String>);
 

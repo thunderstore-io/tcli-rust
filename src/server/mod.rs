@@ -8,11 +8,10 @@ use lock::ProjectLock;
 use once_cell::sync::Lazy;
 use proto::ResponseData;
 
+use self::proto::{Message, Request, Response};
 use crate::error::Error;
 use crate::project::Project;
 use crate::ts;
-
-use self::proto::{Message, Request, Response};
 
 mod lock;
 mod method;
@@ -68,7 +67,9 @@ struct Runtime {
 
 impl Runtime {
     pub fn send(&self, response: Response) {
-        self.tx.send(Message::Response(response)).expect("Failed to write to mpsc tx channel.");
+        self.tx
+            .send(Message::Response(response))
+            .expect("Failed to write to mpsc tx channel.");
     }
 }
 
@@ -81,7 +82,7 @@ struct RtContext {
 
 /// Create the server runtime from the provided read and write channels.
 /// This lives for the lifespan of the process.
-pub async fn spawn(read: impl Read, write: impl Write, project_dir: &Path) -> Result<(), Error> {
+pub async fn spawn(_read: impl Read, _write: impl Write, project_dir: &Path) -> Result<(), Error> {
     let (tx, rx) = mpsc::channel::<Message>();
     let cancel = RwLock::new(false);
 
@@ -100,7 +101,7 @@ pub async fn spawn(read: impl Read, write: impl Write, project_dir: &Path) -> Re
     ts::init_repository("https://thunderstore.io", None);
 
     loop {
-        if let Err(e) = stdin.read_line(&mut line) {
+        if let Err(_) = stdin.read_line(&mut line) {
             panic!("");
         };
 
@@ -109,11 +110,13 @@ pub async fn spawn(read: impl Read, write: impl Write, project_dir: &Path) -> Re
         match Message::from_json(&line) {
             Ok(msg) => route(msg, &mut rt).await?,
             Err(e) => {
-                rt.tx.send(Message::Response(Response {
-                    id: proto::Id::String("FUCK".into()),
-                    data: ResponseData::Error(e.to_string()),
-                })).unwrap();
-            },
+                rt.tx
+                    .send(Message::Response(Response {
+                        id: proto::Id::String("FUCK".into()),
+                        data: ResponseData::Error(e.to_string()),
+                    }))
+                    .unwrap();
+            }
         };
 
         // if let Ok(msg) = Message::from_json(&line) {
@@ -146,7 +149,6 @@ async fn route_rq(rq: Request, rt: &mut Runtime) -> Result<(), Error> {
     Ok(())
 }
 
-
 // /// The daemon's entrypoint. This is a psuedo event loop which does the following in step:
 // /// 1. Read JSON-RPC input(s) from stdin.
 // /// 2. Route each input.
@@ -172,12 +174,12 @@ async fn route_rq(rq: Request, rt: &mut Runtime) -> Result<(), Error> {
 //     }
 // }
 
-fn respond_msg(recv: Receiver<Message>, cancel: RwLock<bool>) {
+fn respond_msg(recv: Receiver<Message>, _cancel: RwLock<bool>) {
     let mut stdout = io::stdout();
     while let Ok(res) = recv.recv() {
         let msg = serde_json::to_string(&res);
-        stdout.write_all(msg.unwrap().as_bytes());
-        stdout.write_all("\n".as_bytes());
+        stdout.write_all(msg.unwrap().as_bytes()).unwrap();
+        stdout.write_all("\n".as_bytes()).unwrap();
     }
 }
 

@@ -23,9 +23,8 @@ pub struct RegKeyVal {
 mod inner {
     use winreg::RegKey;
 
-    use crate::error::IoError;
-
     use super::{HKey, RegKeyVal};
+    use crate::error::IoError;
 
     pub fn get_value_at(hkey: HKey, subkey: &str, name: &str) -> Result<String, IoError> {
         open_subkey(hkey, subkey)?

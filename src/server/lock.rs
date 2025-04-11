@@ -33,8 +33,9 @@ impl Drop for ProjectLock {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     /// Test that project locks behave in the following way:
     /// - Attempting to lock an already locked project MUST return None.

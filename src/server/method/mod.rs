@@ -7,12 +7,11 @@ use futures::channel::mpsc::Sender;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::project::Project;
-
 use self::package::PackageMethod;
 use self::project::ProjectMethod;
 use super::proto::Response;
 use super::{Error, ServerError};
+use crate::project::Project;
 
 pub trait Routeable {
     async fn route(&self, ctx: RwLock<Project>, send: Sender<Result<Response, Error>>);

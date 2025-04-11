@@ -40,9 +40,9 @@ impl GameImporter for SteamImporter {
                     .as_ref()
                     .map_or_else(SteamDir::locate, |x| SteamDir::from_dir(x))
                     .map_err(|e: steamlocate::Error| match e {
-                        steamlocate::Error::InvalidSteamDir(_) => {
-                            GameError::SteamDirBadPath(self.steam_dir.as_ref().unwrap().to_path_buf())
-                        }
+                        steamlocate::Error::InvalidSteamDir(_) => GameError::SteamDirBadPath(
+                            self.steam_dir.as_ref().unwrap().to_path_buf(),
+                        ),
                         steamlocate::Error::FailedLocate(_) => GameError::SteamDirNotFound,
                         _ => unreachable!(),
                     })?;
@@ -75,11 +75,10 @@ impl GameImporter for SteamImporter {
             .iter()
             .map(|x| app_dir.join(x))
             .find(|x| x.is_file())
-            .ok_or_else(|| {
-                GameError::ExeNotFound {
-                    possible_names: r2mm.exe_names.clone(),
-                    base_path: app_dir.clone(),
-            }})?;
+            .ok_or_else(|| GameError::ExeNotFound {
+                possible_names: r2mm.exe_names.clone(),
+                base_path: app_dir.clone(),
+            })?;
 
         let dist = ActiveDistribution {
             dist: GameDefPlatform::Steam {

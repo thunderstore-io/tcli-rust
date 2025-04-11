@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::project::ProjectKind;
-use crate::server::proto::{Id, Response, ResponseData};
-use crate::{project::Project, ui::reporter::VoidReporter};
-use crate::ts::package_reference::PackageReference;
-use crate::server::{Runtime, ServerError};
 use serde::{Deserialize, Serialize};
 
 use super::Error;
+use crate::project::ProjectKind;
+use crate::server::proto::{Id, Response, ResponseData};
+use crate::server::{Runtime, ServerError};
+use crate::ts::package_reference::PackageReference;
+use crate::{project::Project, ui::reporter::VoidReporter};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ProjectMethod {
@@ -25,7 +25,7 @@ pub enum ProjectMethod {
 }
 
 impl From<Option<Project>> for ServerError {
-    fn from(val: Option<Project>) -> Self {
+    fn from(_val: Option<Project>) -> Self {
         ServerError::InvalidContext
     }
 }
@@ -48,23 +48,26 @@ impl ProjectMethod {
         match self {
             ProjectMethod::Open(OpenProject { path }) => {
                 // Unlock the previous ctx (if it exists) and relock this one.
-                rt.proj = Arc::new(Project::open(path)
-                    .unwrap_or(Project::create_new(path, true, ProjectKind::Profile)?))
-            },
+                rt.proj = Arc::new(Project::open(path).unwrap_or(Project::create_new(
+                    path,
+                    true,
+                    ProjectKind::Profile,
+                )?))
+            }
             ProjectMethod::GetMetadata => {
                 rt.send(Response {
                     id: Id::String("OK".into()),
-                    data: ResponseData::Result(format!("{:?}", rt.proj.statefile_path))
+                    data: ResponseData::Result(format!("{:?}", rt.proj.statefile_path)),
                 });
-            },
+            }
             ProjectMethod::AddPackages(packages) => {
                 rt.proj.add_packages(&packages.packages[..])?;
                 rt.proj.commit(Box::new(VoidReporter), false).await?;
-            },
+            }
             ProjectMethod::RemovePackages(packages) => {
                 rt.proj.remove_packages(&packages.packages[..])?;
                 rt.proj.commit(Box::new(VoidReporter), false).await?;
-            },
+            }
             ProjectMethod::InstalledPackages => {
                 let lock = rt.proj.get_lockfile()?;
                 let installed = lock.installed_packages().await?;
@@ -73,7 +76,7 @@ impl ProjectMethod {
                     id: Id::Int(installed.len() as _),
                     data: ResponseData::Result(serde_json::to_string(&installed)?),
                 });
-            },
+            }
         }
 
         Ok(())

@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ts::version::Version;
 use crate::ts::package_reference::PackageReference;
+use crate::ts::version::Version;
 
-/// This is the minimum support 
+/// This is the minimum support
 pub static PROTOCOL_VERSION: Version = Version {
     major: 1,
     minor: 0,
@@ -75,9 +75,9 @@ pub enum Response {
         post_hook_context: Option<String>,
     },
     StartGame {
-        pid: u32,  
+        pid: u32,
     },
     Error {
         message: String,
-    }
+    },
 }

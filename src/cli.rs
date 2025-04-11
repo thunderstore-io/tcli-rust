@@ -76,7 +76,7 @@ pub enum ExternSubcommand {
         /// Use the `list` command to query the list of imported and supported games.
         #[clap(long)]
         game_id: String,
-    }
+    },
 }
 
 #[derive(Subcommand, Debug)]

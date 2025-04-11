@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::package::{cache, Package};
+use super::Error;
+use crate::package::cache;
+use crate::package::index::PackageIndex;
 use crate::server::proto::{Id, Response};
+use crate::server::{Runtime, ServerError};
 use crate::ts::package_reference::PackageReference;
 use crate::TCLI_HOME;
-use crate::server::{Runtime, ServerError};
-use crate::package::index::PackageIndex;
-
-use super::Error;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum PackageMethod {
@@ -35,7 +34,7 @@ impl PackageMethod {
                 let index = PackageIndex::open(&TCLI_HOME).await?;
                 let package = index.get_package(&data.package).unwrap();
                 rt.send(Response::data_ok(Id::String("diowadaw".into()), package));
-            },
+            }
             Self::IsCached(data) => {
                 let is_cached = cache::is_cached(&data.package);
                 rt.send(Response::data_ok(Id::String("dwdawdwa".into()), is_cached));
@@ -43,7 +42,7 @@ impl PackageMethod {
             Self::SyncIndex => {
                 PackageIndex::sync(&TCLI_HOME).await?;
                 rt.send(Response::ok(Id::String("dwada".into())));
-            },
+            }
         }
 
         Ok(())

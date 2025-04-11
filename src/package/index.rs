@@ -12,12 +12,12 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
-use crate::util::file;
-use crate::error::{IoError, Error};
+use crate::error::{Error, IoError};
 use crate::ts::experimental;
 use crate::ts::experimental::index::PackageIndexEntry;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::version::Version;
+use crate::util::file;
 
 #[derive(Serialize, Deserialize)]
 struct IndexHeader {
@@ -117,7 +117,8 @@ impl PackageIndex {
                     inner.name,
                     Version::from_str(inner.version_number).unwrap(),
                 )
-            }.unwrap();
+            }
+            .unwrap();
 
             let entry = LookupTableEntry {
                 start,
@@ -134,7 +135,7 @@ impl PackageIndex {
 
         let header_path = index_dir.join("header.json");
         let header = IndexHeader {
-            update_time: experimental::index::get_index_update_time().await?
+            update_time: experimental::index::get_index_update_time().await?,
         };
         fs::write(header_path, serde_json::to_string_pretty(&header)?)?;
 
@@ -192,7 +193,10 @@ impl PackageIndex {
     }
 
     /// Get a package which matches the given package reference.
-    pub fn get_package(&self, reference: impl Borrow<PackageReference>) -> Option<PackageIndexEntry> {
+    pub fn get_package(
+        &self,
+        reference: impl Borrow<PackageReference>,
+    ) -> Option<PackageIndexEntry> {
         let entry_idx = self.strict_lookup.get(&reference.borrow().to_string())?;
         let entry = self.lookup.get(*entry_idx)?;
 

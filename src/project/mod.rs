@@ -14,7 +14,7 @@ use tokio::sync::Semaphore;
 use zip::write::SimpleFileOptions;
 
 use self::lock::LockFile;
-use crate::error::{IoError, IoResultToTcli, Error};
+use crate::error::{Error, IoError, IoResultToTcli};
 use crate::game::registry::GameData;
 use crate::game::{proc, registry};
 use crate::package::index::PackageIndex;
@@ -30,12 +30,12 @@ use crate::ts::package_reference::PackageReference;
 use crate::ui::reporter::{Progress, Reporter};
 use crate::{util, TCLI_HOME};
 
+pub mod error;
 pub mod lock;
 pub mod manifest;
 pub mod overrides;
 mod publish;
 mod state;
-pub mod error;
 
 pub enum ProjectKind {
     Dev(ProjectOverrides),
@@ -80,7 +80,9 @@ impl Project {
     pub fn validate(&self) -> Result<(), Error> {
         // A directory without a manifest is *not* a project.
         if !self.manifest_path.is_file() {
-            Err(ProjectError::NoProjectFile(self.manifest_path.to_path_buf()))?;
+            Err(ProjectError::NoProjectFile(
+                self.manifest_path.to_path_buf(),
+            ))?;
         }
 
         // Everything within .tcli is assumed to be replacable. Therefore we only care
@@ -293,9 +295,9 @@ impl Project {
         multi: &dyn Progress,
     ) -> Result<(), Error> {
         let packages = try_join_all(
-        packages
-            .into_iter()
-            .map(|x| async move { Package::from_any(x).await }),
+            packages
+                .into_iter()
+                .map(|x| async move { Package::from_any(x).await }),
         )
         .await?;
 
@@ -310,7 +312,7 @@ impl Project {
             // Resolve the package, either downloading it or returning its cached path.
             let package_dir = match package.get_path().await {
                 Some(x) => x,
-                None => package.download(bar).await?
+                None => package.download(bar).await?,
             };
             let tracked_files = installer
                 .install_package(
@@ -392,7 +394,7 @@ impl Project {
 
             let package_dir = match package.get_path().await {
                 Some(x) => x,
-                None => package.download(bar).await?
+                None => package.download(bar).await?,
             };
             let state_entry = statefile.state.get(&package.identifier);
 
@@ -425,19 +427,17 @@ impl Project {
             let staged = &entry.staged;
 
             // Determine the list of entries that will be invalidated.
-            let invalid_staged_entries = staged
-                .iter()
-                .filter(|x| !x.action.path.is_file());
+            let invalid_staged_entries = staged.iter().filter(|x| !x.action.path.is_file());
 
             for staged_entry in invalid_staged_entries {
                 // Each dest is checked if it (a) exists and (b) is the same as orig.
-                let dests_to_remove = staged_entry
-                    .dest
-                    .iter()
-                    .filter_map(|path| match staged_entry.is_same_as(path) {
-                        Ok(x) if x => Some(Ok(path)),
-                        Ok(_) => None,
-                        Err(e) => Some(Err(e)),
+                let dests_to_remove =
+                    staged_entry.dest.iter().filter_map(|path| {
+                        match staged_entry.is_same_as(path) {
+                            Ok(x) if x => Some(Ok(path)),
+                            Ok(_) => None,
+                            Err(e) => Some(Err(e)),
+                        }
                     });
 
                 for dest in dests_to_remove {
@@ -696,4 +696,3 @@ impl Project {
         LockFile::open_or_new(&self.lockfile_path)
     }
 }
-

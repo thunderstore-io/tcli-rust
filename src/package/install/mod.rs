@@ -1,21 +1,21 @@
 use std::env;
 use std::fs;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use colored::Colorize;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use self::api::{Request, TrackedFile};
 use self::api::Response;
 use self::api::PROTOCOL_VERSION;
+use self::api::{Request, TrackedFile};
 use self::manifest::InstallerManifest;
 use super::error::PackageError;
 use super::Package;
-use crate::error::IoError;
 use crate::error::Error;
-use crate::ui::reporter::{Progress, VoidProgress, ProgressBarTrait};
+use crate::error::IoError;
+use crate::ui::reporter::{Progress, ProgressBarTrait, VoidProgress};
 
 pub mod api;
 mod legacy_compat;
@@ -33,7 +33,7 @@ impl Installer {
         let test = VoidProgress {};
         let cache_dir = match package.get_path().await {
             Some(x) => x,
-            None => package.download(test.add_bar().as_ref()).await?
+            None => package.download(test.add_bar().as_ref()).await?,
         };
 
         let manifest = {
@@ -72,7 +72,12 @@ impl Installer {
 
         // Validate that the installer is (a) executable and (b) is using a valid protocol version.
         let response = installer.run(&Request::Version).await?;
-        let Response::Version { author: _, identifier: _, protocol } = response else {
+        let Response::Version {
+            author: _,
+            identifier: _,
+            protocol,
+        } = response
+        else {
             Err(PackageError::InstallerBadResponse {
                 package_id: package.identifier.to_string(),
                 message: "The installer did not respond with a valid or otherwise serializable Version response variant.".to_string(),
@@ -100,7 +105,7 @@ impl Installer {
         }
 
         Installer {
-            exec_path: override_installer
+            exec_path: override_installer,
         }
     }
 
@@ -110,7 +115,7 @@ impl Installer {
         package_dir: &Path,
         state_dir: &Path,
         staging_dir: &Path,
-        reporter: &dyn ProgressBarTrait
+        reporter: &dyn ProgressBarTrait,
     ) -> Result<Vec<TrackedFile>, Error> {
         // Determine if the package is a modloader or not.
         let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
@@ -134,19 +139,21 @@ impl Installer {
 
         let response = self.run(&request).await?;
         match response {
-            Response::PackageInstall { tracked_files, post_hook_context: _ } => {
-                Ok(tracked_files)
-            }
+            Response::PackageInstall {
+                tracked_files,
+                post_hook_context: _,
+            } => Ok(tracked_files),
 
-            Response::Error { message } => {
-                Err(PackageError::InstallerError { message })?
-            }
+            Response::Error { message } => Err(PackageError::InstallerError { message })?,
 
             x => {
                 let message =
                     format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
 
-                Err(PackageError::InstallerBadResponse { package_id: package.identifier.to_string(), message })?
+                Err(PackageError::InstallerBadResponse {
+                    package_id: package.identifier.to_string(),
+                    message,
+                })?
             }
         }
     }
@@ -158,7 +165,7 @@ impl Installer {
         state_dir: &Path,
         staging_dir: &Path,
         tracked_files: Vec<TrackedFile>,
-        reporter: &dyn ProgressBarTrait
+        reporter: &dyn ProgressBarTrait,
     ) -> Result<(), Error> {
         let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
         let request = Request::PackageUninstall {
@@ -181,19 +188,31 @@ impl Installer {
 
         let response = self.run(&request).await?;
         match response {
-            Response::PackageUninstall { post_hook_context: _ } => Ok(()),
+            Response::PackageUninstall {
+                post_hook_context: _,
+            } => Ok(()),
             Response::Error { message } => Err(PackageError::InstallerError { message })?,
             x => {
                 let message =
                     format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
 
-                Err(PackageError::InstallerBadResponse { package_id: package.identifier.to_string(), message })?
+                Err(PackageError::InstallerBadResponse {
+                    package_id: package.identifier.to_string(),
+                    message,
+                })?
             }
         }
     }
 
     /// Start the game and drop a PID file in the state directory of the current project.
-    pub async fn start_game(&self, mods_enabled: bool, state_dir: &Path, game_dir: &Path, game_exe: &Path, args: Vec<String>) -> Result<u32, Error> {
+    pub async fn start_game(
+        &self,
+        mods_enabled: bool,
+        state_dir: &Path,
+        game_dir: &Path,
+        game_exe: &Path,
+        args: Vec<String>,
+    ) -> Result<u32, Error> {
         let request = Request::StartGame {
             mods_enabled,
             project_state: state_dir.to_path_buf(),
@@ -230,11 +249,7 @@ impl Installer {
             .await?;
 
         let mut err_str = String::new();
-        child
-            .stderr
-            .unwrap()
-            .read_to_string(&mut err_str)
-            .await?;
+        child.stderr.unwrap().read_to_string(&mut err_str).await?;
 
         if !err_str.is_empty() {
             println!("installer stderr:");
