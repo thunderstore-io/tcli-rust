@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
 use md5::digest::FixedOutput;
 use md5::Md5;
-
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::Error;
-use crate::package::{Package, PackageMetadata};
 use crate::package::resolver::{DependencyGraph, InnerDepGraph};
+use crate::package::{Package, PackageMetadata};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LockFile {

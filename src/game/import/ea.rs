@@ -35,11 +35,10 @@ impl GameImporter for EaImporter {
             .custom_exe
             .clone()
             .or_else(|| super::find_game_exe(&r2mm.exe_names, &game_dir))
-            .ok_or_else(|| {
-                GameError::ExeNotFound {
-                    possible_names: r2mm.exe_names.clone(),
-                    base_path: game_dir.clone(),
-            }})?;
+            .ok_or_else(|| GameError::ExeNotFound {
+                possible_names: r2mm.exe_names.clone(),
+                base_path: game_dir.clone(),
+            })?;
         let dist = ActiveDistribution {
             dist: GameDefPlatform::Origin {
                 identifier: self.ident.to_string(),

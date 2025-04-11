@@ -62,7 +62,9 @@ impl GameDefPlatform {
     /// the ecosystem schema, preferably as a compile time check.
     pub fn ident_from_name<'a>(&'a self, name: &str) -> Option<&'a str> {
         match self {
-            GameDefPlatform::EpicGames { identifier } if name == "epic-games-store" => Some(identifier),
+            GameDefPlatform::EpicGames { identifier } if name == "epic-games-store" => {
+                Some(identifier)
+            }
             GameDefPlatform::GamePass { identifier } if name == "gamepass" => Some(identifier),
             GameDefPlatform::Origin { identifier } if name == "origin" || name == "ea" => {
                 Some(identifier)

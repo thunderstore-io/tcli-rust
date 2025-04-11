@@ -13,7 +13,10 @@ pub enum GameError {
     NotFound(String, String),
 
     #[error("Could not find any of '{possible_names:?}' in base directory: '{base_path}'.")]
-    ExeNotFound { possible_names: Vec<String>, base_path: PathBuf},
+    ExeNotFound {
+        possible_names: Vec<String>,
+        base_path: PathBuf,
+    },
 
     #[error("The Steam library could not be automatically found.")]
     SteamDirNotFound,

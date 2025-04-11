@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::{GameImporter, ImportBase};
-use crate::error::{IoError, Error};
+use crate::error::{Error, IoError};
 use crate::game::error::GameError;
 use crate::game::registry::{ActiveDistribution, GameData};
 use crate::ts::v1::models::ecosystem::GameDefPlatform;
@@ -81,11 +81,10 @@ impl GameImporter for EgsImporter {
             .custom_exe
             .clone()
             .or_else(|| super::find_game_exe(&r2mm.exe_names, &game_dir))
-            .ok_or_else(|| {
-                GameError::ExeNotFound {
-                    possible_names: r2mm.exe_names.clone(),
-                    base_path: game_dir.clone(),
-            }})?;
+            .ok_or_else(|| GameError::ExeNotFound {
+                possible_names: r2mm.exe_names.clone(),
+                base_path: game_dir.clone(),
+            })?;
         let dist = ActiveDistribution {
             dist: GameDefPlatform::Other,
             game_dir: game_dir.to_path_buf(),

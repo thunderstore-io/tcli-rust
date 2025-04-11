@@ -1,11 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use crate::server::ServerError;
-use crate::ts::error::ApiError;
-
 use crate::game::error::GameError;
 use crate::package::error::PackageError;
 use crate::project::error::ProjectError;
+use crate::server::ServerError;
+use crate::ts::error::ApiError;
 
 #[derive(Debug, thiserror::Error)]
 #[repr(u32)]
@@ -82,7 +81,10 @@ impl From<std::io::Error> for Error {
 
 impl From<reqwest::Error> for Error {
     fn from(value: reqwest::Error) -> Self {
-        Self::Api(ApiError::BadRequest { source: value, response_body: None })
+        Self::Api(ApiError::BadRequest {
+            source: value,
+            response_body: None,
+        })
     }
 }
 

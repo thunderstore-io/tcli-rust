@@ -8,11 +8,10 @@ use lock::ProjectLock;
 use once_cell::sync::Lazy;
 use proto::ResponseData;
 
+use self::proto::{Message, Request, Response};
 use crate::error::Error;
 use crate::project::Project;
 use crate::ts;
-
-use self::proto::{Message, Request, Response};
 
 mod lock;
 mod method;
@@ -68,7 +67,9 @@ struct Runtime {
 
 impl Runtime {
     pub fn send(&self, response: Response) {
-        self.tx.send(Message::Response(response)).expect("Failed to write to mpsc tx channel.");
+        self.tx
+            .send(Message::Response(response))
+            .expect("Failed to write to mpsc tx channel.");
     }
 }
 
@@ -109,11 +110,13 @@ pub async fn spawn(_read: impl Read, _write: impl Write, project_dir: &Path) -> 
         match Message::from_json(&line) {
             Ok(msg) => route(msg, &mut rt).await?,
             Err(e) => {
-                rt.tx.send(Message::Response(Response {
-                    id: proto::Id::String("FUCK".into()),
-                    data: ResponseData::Error(e.to_string()),
-                })).unwrap();
-            },
+                rt.tx
+                    .send(Message::Response(Response {
+                        id: proto::Id::String("FUCK".into()),
+                        data: ResponseData::Error(e.to_string()),
+                    }))
+                    .unwrap();
+            }
         };
 
         // if let Ok(msg) = Message::from_json(&line) {
@@ -145,7 +148,6 @@ async fn route_rq(rq: Request, rt: &mut Runtime) -> Result<(), Error> {
 
     Ok(())
 }
-
 
 // /// The daemon's entrypoint. This is a psuedo event loop which does the following in step:
 // /// 1. Read JSON-RPC input(s) from stdin.

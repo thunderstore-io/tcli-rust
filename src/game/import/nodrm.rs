@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
+use super::{GameImporter, ImportBase};
 use crate::error::{Error, IoError};
 use crate::game::error::GameError;
-use super::{GameImporter, ImportBase};
 use crate::game::registry::{ActiveDistribution, GameData};
 use crate::ts::v1::models::ecosystem::GameDefPlatform;
 
@@ -33,8 +33,9 @@ impl GameImporter for NoDrmImporter {
             .custom_exe
             .clone()
             .or_else(|| super::find_game_exe(&r2mm.exe_names, &self.game_dir))
-            .ok_or_else(|| {
-                GameError::ExeNotFound { possible_names: r2mm.exe_names.clone(), base_path: self.game_dir.clone() }
+            .ok_or_else(|| GameError::ExeNotFound {
+                possible_names: r2mm.exe_names.clone(),
+                base_path: self.game_dir.clone(),
             })?;
         let dist = ActiveDistribution {
             dist: GameDefPlatform::Other,

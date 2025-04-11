@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
 
-use crate::error::{IoResultToTcli, Error};
+use crate::error::{Error, IoResultToTcli};
 use crate::ts::package_reference::PackageReference;
 use crate::util::TempFile;
 use crate::TCLI_HOME;

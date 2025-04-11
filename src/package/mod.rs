@@ -1,8 +1,8 @@
 pub mod cache;
+pub mod error;
 pub mod index;
 pub mod install;
 pub mod resolver;
-pub mod error;
 
 use std::borrow::Borrow;
 use std::fs::File;
@@ -16,14 +16,13 @@ use serde_with::{self, serde_as, DisplayFromStr};
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::error::{IoError, IoResultToTcli, Error};
+use self::index::PackageIndex;
+use crate::error::{Error, IoError, IoResultToTcli};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::{self, CLIENT};
 use crate::ui::reporter::ProgressBarTrait;
 use crate::TCLI_HOME;
-
-use self::index::PackageIndex;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PackageMetadata {
@@ -134,10 +133,9 @@ impl Package {
     /// Resolve the package into a discrete path, returning None if it does not exist locally.
     pub async fn get_path(&self) -> Option<PathBuf> {
         match &self.source {
-            PackageSource::Local(path) => add_to_cache(
-                &self.identifier,
-                File::open(path).map_fs_error(path).ok()?,
-            ).ok(),
+            PackageSource::Local(path) => {
+                add_to_cache(&self.identifier, File::open(path).map_fs_error(path).ok()?).ok()
+            }
             PackageSource::Cache(path) => Some(path.clone()),
             PackageSource::Remote(_) => None,
         }
@@ -154,7 +152,11 @@ impl Package {
             serde_json::from_str::<PackageManifestV1>(&str)?
         };
         let icon = package_dir.join("icon.png");
-        let reference = package_dir.file_name().unwrap().to_string_lossy().to_string();
+        let reference = package_dir
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
         Ok(Some(PackageMetadata {
             manifest,

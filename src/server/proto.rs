@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::ServerError;
 use crate::server::method::Method;
 use crate::server::Error;
-
-use super::ServerError;
 
 const JRPC_VER: &str = "2.0";
 
@@ -17,12 +16,16 @@ pub enum Message {
 
 impl Message {
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        let msg = serde_json::from_str::<Message>(json).inspect_err(|e| {
-            println!("{e:?}");
-        }).map_err(ServerError::InvalidJson)?;
+        let msg = serde_json::from_str::<Message>(json)
+            .inspect_err(|e| {
+                println!("{e:?}");
+            })
+            .map_err(ServerError::InvalidJson)?;
 
         match msg {
-            Message::Request(x) if x.jsonrpc != JRPC_VER => Err(ServerError::InvalidMethod(x.jsonrpc))?,
+            Message::Request(x) if x.jsonrpc != JRPC_VER => {
+                Err(ServerError::InvalidMethod(x.jsonrpc))?
+            }
             _ => Ok(msg),
         }
     }
@@ -133,7 +136,7 @@ impl From<Error> for RpcError {
 mod test {
     use super::*;
     use crate::server::method::package::PackageMethod;
-    use crate::server::method::project::{ProjectMethod, OpenProject};
+    use crate::server::method::project::{OpenProject, ProjectMethod};
     use crate::server::ServerError;
 
     #[test]
@@ -178,7 +181,10 @@ mod test {
 
         // ...but should then fail to be converted into a typed Request.
         let rq = Request::try_from(rq);
-        assert!(matches!(rq, Err(Error::Server(ServerError::InvalidMethod(..))))); // Invalid methods should still be deserialized aok as they're checked by typed Request struct.
+        assert!(matches!(
+            rq,
+            Err(Error::Server(ServerError::InvalidMethod(..)))
+        )); // Invalid methods should still be deserialized aok as they're checked by typed Request struct.
 
         // Likewise, valid methods with garbage data should also fail when converted to typed.
         let data = r#"{ "jsonrpc": "2.0", "id": "oksamies", "method": "project/set_context", "params": { "garbage": 1 } }"#;
@@ -189,6 +195,9 @@ mod test {
 
         let rq = Request::try_from(rq);
         panic!("{rq:?}");
-        assert!(matches!(rq, Err(Error::Server(ServerError::InvalidJson(..)))));
+        assert!(matches!(
+            rq,
+            Err(Error::Server(ServerError::InvalidJson(..)))
+        ));
     }
 }

@@ -3,12 +3,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::error::ProjectError;
 use crate::error::Error;
 use crate::project::overrides::ProjectOverrides;
 use crate::ts::package_reference::{self, PackageReference};
 use crate::ts::version::Version;
-
-use super::error::ProjectError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ProjectManifest {
@@ -53,7 +52,8 @@ impl ProjectManifest {
 
     pub fn read_from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
-        let text = fs::read_to_string(path).map_err(|_| ProjectError::NoProjectFile(path.into()))?;
+        let text =
+            fs::read_to_string(path).map_err(|_| ProjectError::NoProjectFile(path.into()))?;
 
         let mut manifest: ProjectManifest = toml::from_str(&text)?;
 

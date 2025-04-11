@@ -49,10 +49,7 @@ impl DependencyGraph {
             .map(|x| ((graph[x]).to_loose_ident_string(), x))
             .collect::<HashMap<String, NodeIndex>>();
 
-        DependencyGraph {
-            graph,
-            index
-        }
+        DependencyGraph { graph, index }
     }
 
     pub fn into_inner(self) -> InnerDepGraph {
@@ -179,7 +176,7 @@ impl DependencyGraph {
                 Some((other_index, other_value)) if self_value.version < other_value.version => {
                     add.push((other_index, (*other_value).clone()));
                     del.push((self_index, (*self_value).clone()));
-                },
+                }
                 Some(_) => (),
                 None => del.push((self_index, (*self_value).clone())),
             }
@@ -187,26 +184,24 @@ impl DependencyGraph {
 
         // Handle the remaining case:
         // - !this_table.contains(other_value) => ADD other_value
-        add.extend(other_table
-            .iter()
-            .filter_map(|(key, (other_index, other_value))| match self_table.get(key) {
-                Some(_) => None,
-                None => Some((other_index, (*other_value).clone()))
-            }));
+        add.extend(
+            other_table
+                .iter()
+                .filter_map(
+                    |(key, (other_index, other_value))| match self_table.get(key) {
+                        Some(_) => None,
+                        None => Some((other_index, (*other_value).clone())),
+                    },
+                ),
+        );
 
         // Sort entries by their index (i, _) to maintain order.
         add.sort_by(|a, b| a.0.partial_cmp(b.0).unwrap());
         del.sort_by(|a, b| a.0.partial_cmp(b.0).unwrap());
 
         GraphDelta {
-            add: add
-                .into_iter()
-                .map(|(_, x)| x)
-                .collect::<Vec<_>>(),
-            del: del
-                .into_iter()
-                .map(|(_, x)| x)
-                .collect::<Vec<_>>(),
+            add: add.into_iter().map(|(_, x)| x).collect::<Vec<_>>(),
+            del: del.into_iter().map(|(_, x)| x).collect::<Vec<_>>(),
         }
     }
 }
@@ -263,7 +258,11 @@ pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<Depende
     let packages = graph.digest();
     let pkg_count = packages.len();
 
-    println!("Resolved {} packages in {}ms", pkg_count, start.elapsed().as_millis());
+    println!(
+        "Resolved {} packages in {}ms",
+        pkg_count,
+        start.elapsed().as_millis()
+    );
 
     Ok(graph)
 }

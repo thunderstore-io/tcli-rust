@@ -7,7 +7,7 @@ use clap::Parser;
 use cli::{ExternSubcommand, InitSubcommand};
 use colored::Colorize;
 use directories::BaseDirs;
-use error::{IoError, Error};
+use error::{Error, IoError};
 use game::import::GameImporter;
 use once_cell::sync::Lazy;
 use project::error::ProjectError;
@@ -353,7 +353,7 @@ async fn main() -> Result<(), Error> {
                 Ok(())
             }
         },
-        Commands::Server { project_path }=> {
+        Commands::Server { project_path } => {
             let read = io::stdin();
             let write = io::stdout();
             server::spawn(read, write, &project_path).await?;
@@ -365,10 +365,12 @@ async fn main() -> Result<(), Error> {
             match command {
                 ExternSubcommand::GameData { game_id } => {
                     let base = ImportBase::new(&game_id).await?;
-                    let game_data = import::select_importer(&base)?
-                        .construct(base)?;
+                    let game_data = import::select_importer(&base)?.construct(base)?;
 
-                    println!("{}", serde_json::to_string_pretty(&game_data.active_distribution)?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&game_data.active_distribution)?
+                    );
                 }
             }
 

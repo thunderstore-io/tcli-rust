@@ -1,16 +1,12 @@
 use std::path::PathBuf;
 
-use crate::error::{IoError, Error};
+use super::error::ProjectError;
+use crate::error::{Error, IoError};
 use crate::project::manifest::ProjectManifest;
 use crate::ts::experimental::models::publish::PackageSubmissionMetadata;
 use crate::ts::experimental::publish;
 
-use super::error::ProjectError;
-
-pub async fn publish(
-    manifest: &ProjectManifest,
-    archive_path: PathBuf,
-) -> Result<(), Error> {
+pub async fn publish(manifest: &ProjectManifest, archive_path: PathBuf) -> Result<(), Error> {
     let package = manifest
         .package
         .as_ref()
@@ -25,10 +21,7 @@ pub async fn publish(
     let usermedia = publish::upload_file(archive_path).await?;
     publish::package_submit(&PackageSubmissionMetadata {
         author_name: package.namespace.to_string(),
-        communities: publish
-            .iter()
-            .map(|p| p.community.clone())
-            .collect(),
+        communities: publish.iter().map(|p| p.community.clone()).collect(),
         has_nsfw_content: package.contains_nsfw_content,
         community_categories: publish
             .iter()
