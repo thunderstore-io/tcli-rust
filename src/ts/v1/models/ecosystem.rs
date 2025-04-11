@@ -10,6 +10,7 @@ pub struct EcosystemSchema {
     pub schema_version: Version,
     pub games: HashMap<String, GameDef>,
     pub communities: HashMap<String, SchemaCommunity>,
+    pub modloader_packages: Vec<R2MMModLoaderPackage>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -34,7 +35,7 @@ pub struct GameDefMeta {
 #[serde(tag = "platform")]
 #[serde(rename_all = "kebab-case")]
 pub enum GameDefPlatform {
-    #[serde(rename = "egs")]
+    #[serde(rename = "epic-games-store")]
     EpicGames {
         identifier: String,
     },
@@ -51,6 +52,7 @@ pub enum GameDefPlatform {
     SteamDirect {
         identifier: String,
     },
+    #[serde(rename = "oculus-store")]
     Oculus,
     Other,
 }
@@ -60,7 +62,7 @@ impl GameDefPlatform {
     /// the ecosystem schema, preferably as a compile time check.
     pub fn ident_from_name<'a>(&'a self, name: &str) -> Option<&'a str> {
         match self {
-            GameDefPlatform::EpicGames { identifier } if name == "egs" => Some(identifier),
+            GameDefPlatform::EpicGames { identifier } if name == "epic-games-store" => Some(identifier),
             GameDefPlatform::GamePass { identifier } if name == "gamepass" => Some(identifier),
             GameDefPlatform::Origin { identifier } if name == "origin" || name == "ea" => {
                 Some(identifier)
@@ -76,11 +78,11 @@ impl GameDefPlatform {
     pub fn get_platform_names(&self) -> Vec<&'static str> {
         vec![
             "origin",
-            "egs",
+            "epic-games-store",
             "gamepass",
             "steam",
             "steam-direct",
-            "oculus",
+            "oculus-store",
             "other",
         ]
     }
@@ -93,14 +95,12 @@ pub struct GameDefR2MM {
     pub data_folder_name: String,
     pub settings_identifier: String,
     pub package_index: String,
-    pub exclusions_url: String,
     pub steam_folder_name: String,
     pub exe_names: Vec<String>,
-    pub game_instancetype: String,
+    pub game_instance_type: String,
     pub game_selection_display_mode: String,
-    pub mod_loader_packages: Vec<R2MMModLoaderPackage>,
     pub install_rules: Vec<R2MMInstallRule>,
-    pub relative_file_exclusions: Vec<String>,
+    pub relative_file_exclusions: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

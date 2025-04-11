@@ -6,6 +6,7 @@ pub mod steam;
 
 use std::path::{Path, PathBuf};
 
+use super::ecosystem;
 use super::error::GameError;
 use super::registry::{ActiveDistribution, GameData};
 use crate::error::Error;
@@ -13,8 +14,7 @@ use crate::game::import::ea::EaImporter;
 use crate::game::import::egs::EgsImporter;
 use crate::game::import::gamepass::GamepassImporter;
 use crate::game::import::steam::SteamImporter;
-use crate::ts::v1::models::ecosystem::GameDef;
-use crate::ts::v1::{ecosystem, models::ecosystem::GameDefPlatform};
+use crate::ts::v1::models::ecosystem::{ GameDef, GameDefPlatform };
 
 pub trait GameImporter {
     fn construct(self: Box<Self>, base: ImportBase) -> Result<GameData, Error>;
@@ -39,7 +39,7 @@ impl ImportBase {
     pub async fn new(game_id: &str) -> Result<Self, Error> {
         let game_def = ecosystem::get_schema()
             .await
-            .map_err(|_| GameError::EcosystemSchema)?
+            .unwrap()
             .games
             .get(game_id)
             .ok_or_else(|| GameError::BadGameId(game_id.into()))?

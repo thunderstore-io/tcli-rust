@@ -4,11 +4,11 @@ use std::io::{self, Stdin};
 use std::path::PathBuf;
 
 use clap::Parser;
-use cli::InitSubcommand;
+use cli::{ExternSubcommand, InitSubcommand};
 use colored::Colorize;
 use directories::BaseDirs;
 use error::{IoError, Error};
-use game::import::GameImporter;
+use game::import::{select_importer, GameImporter};
 use once_cell::sync::Lazy;
 use project::error::ProjectError;
 use project::ProjectKind;
@@ -359,7 +359,21 @@ async fn main() -> Result<(), Error> {
             server::spawn(read, write, &project_path).await?;
 
             Ok(())
-        },
+        }
+
+        Commands::Extern { command } => {
+            match command {
+                ExternSubcommand::GameData { game_id } => {
+                    let base = ImportBase::new(&game_id).await?;
+                    let game_data = import::select_importer(&base)?
+                        .construct(base)?;
+
+                    println!("{}", serde_json::to_string_pretty(&game_data.active_distribution)?);
+                }
+            }
+
+            Ok(())
+        }
     };
 
     test
