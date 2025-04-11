@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::io::{self, Stdin};
+use std::io;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -8,7 +8,7 @@ use cli::{ExternSubcommand, InitSubcommand};
 use colored::Colorize;
 use directories::BaseDirs;
 use error::{IoError, Error};
-use game::import::{select_importer, GameImporter};
+use game::import::GameImporter;
 use once_cell::sync::Lazy;
 use project::error::ProjectError;
 use project::ProjectKind;

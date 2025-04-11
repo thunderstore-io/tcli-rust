@@ -81,7 +81,7 @@ struct RtContext {
 
 /// Create the server runtime from the provided read and write channels.
 /// This lives for the lifespan of the process.
-pub async fn spawn(read: impl Read, write: impl Write, project_dir: &Path) -> Result<(), Error> {
+pub async fn spawn(_read: impl Read, _write: impl Write, project_dir: &Path) -> Result<(), Error> {
     let (tx, rx) = mpsc::channel::<Message>();
     let cancel = RwLock::new(false);
 
@@ -100,7 +100,7 @@ pub async fn spawn(read: impl Read, write: impl Write, project_dir: &Path) -> Re
     ts::init_repository("https://thunderstore.io", None);
 
     loop {
-        if let Err(e) = stdin.read_line(&mut line) {
+        if let Err(_) = stdin.read_line(&mut line) {
             panic!("");
         };
 
@@ -172,12 +172,12 @@ async fn route_rq(rq: Request, rt: &mut Runtime) -> Result<(), Error> {
 //     }
 // }
 
-fn respond_msg(recv: Receiver<Message>, cancel: RwLock<bool>) {
+fn respond_msg(recv: Receiver<Message>, _cancel: RwLock<bool>) {
     let mut stdout = io::stdout();
     while let Ok(res) = recv.recv() {
         let msg = serde_json::to_string(&res);
-        stdout.write_all(msg.unwrap().as_bytes());
-        stdout.write_all("\n".as_bytes());
+        stdout.write_all(msg.unwrap().as_bytes()).unwrap();
+        stdout.write_all("\n".as_bytes()).unwrap();
     }
 }
 

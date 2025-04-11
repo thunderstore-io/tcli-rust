@@ -25,7 +25,7 @@ pub enum ProjectMethod {
 }
 
 impl From<Option<Project>> for ServerError {
-    fn from(val: Option<Project>) -> Self {
+    fn from(_val: Option<Project>) -> Self {
         ServerError::InvalidContext
     }
 }

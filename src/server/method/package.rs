@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::package::{cache, Package};
+use crate::package::cache;
 use crate::server::proto::{Id, Response};
 use crate::ts::package_reference::PackageReference;
 use crate::TCLI_HOME;
