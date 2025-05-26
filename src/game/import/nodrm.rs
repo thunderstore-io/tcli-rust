@@ -4,7 +4,7 @@ use super::ImportOverrides;
 use crate::error::{Error, IoError};
 use crate::game::error::GameError;
 use crate::game::registry::ActiveDistribution;
-use crate::ts::v1::models::ecosystem::{GameDef, GameDefPlatform};
+use crate::ts::v1::models::ecosystem::{GameDef, GamePlatform};
 
 pub struct NoDrmImporter {
     game_dir: PathBuf,
@@ -36,7 +36,7 @@ pub fn get_gamedist(game_dir: &Path, game_def: &GameDef, overrides: &ImportOverr
             base_path: game_dir.to_path_buf(),
         })?;
     Ok(ActiveDistribution {
-        dist: GameDefPlatform::Other,
+        dist: GamePlatform::Other,
         game_dir: game_dir.to_path_buf(),
         data_dir: game_dir.join(&r2mm.data_folder_name),
         exe_path,

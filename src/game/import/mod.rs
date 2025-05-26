@@ -10,7 +10,7 @@ use super::ecosystem;
 use super::error::GameError;
 use super::registry::{ActiveDistribution, GameData};
 use crate::error::Error;
-use crate::ts::v1::models::ecosystem::{GameDef, GameDefPlatform};
+use crate::ts::v1::models::ecosystem::{GameDef, GamePlatform};
 
 pub trait GameImporter {
     fn construct(self: Box<Self>, base: ImportBase) -> Result<GameData, Error>;
@@ -70,18 +70,18 @@ impl ImportBase {
             .collect::<Vec<_>>())
     }
 
-    pub fn get_active_dist(&self, platform: &GameDefPlatform) -> Result<Option<ActiveDistribution>, Error> {
+    pub fn get_active_dist(&self, platform: &GamePlatform) -> Result<Option<ActiveDistribution>, Error> {
         match platform {
-            GameDefPlatform::EpicGamesStore { identifier } => {
+            GamePlatform::EpicGamesStore { identifier } => {
                 egs::get_gamedist(identifier, &self.game_def, &self.overrides)
             },
-            GameDefPlatform::XboxGamePass { identifier } => {
+            GamePlatform::XboxGamePass { identifier } => {
                 gamepass::get_gamedist(identifier, &self.game_def, &self.overrides)
             },
-            GameDefPlatform::Origin { identifier } => {
+            GamePlatform::Origin { identifier } => {
                 ea::get_gamedist(identifier, &self.game_def, &self.overrides)
             },
-            GameDefPlatform::Steam { identifier } => {
+            GamePlatform::Steam { identifier } => {
                 steam::get_gamedist(
                     identifier.parse().unwrap(), 
                     self.overrides.steam_dir.as_deref(), 
@@ -89,7 +89,7 @@ impl ImportBase {
                     &self.overrides,
                 )
             },
-            GameDefPlatform::SteamDirect { identifier } => {
+            GamePlatform::SteamDirect { identifier } => {
                 steam::get_gamedist(
                     identifier.parse().unwrap(), 
                     self.overrides.steam_dir.as_deref(), 

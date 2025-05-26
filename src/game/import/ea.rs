@@ -4,7 +4,7 @@ use super::ImportOverrides;
 use crate::error::Error;
 use crate::game::error::GameError;
 use crate::game::registry::ActiveDistribution;
-use crate::ts::v1::models::ecosystem::{GameDef, GameDefPlatform};
+use crate::ts::v1::models::ecosystem::{GameDef, GamePlatform};
 use crate::util::reg::{self, HKey};
 
 pub fn get_gamedist(ident: &str, game_def: &GameDef, overrides: &ImportOverrides) -> Result<Option<ActiveDistribution>, Error> {
@@ -26,7 +26,7 @@ pub fn get_gamedist(ident: &str, game_def: &GameDef, overrides: &ImportOverrides
         })?;
 
     Ok(Some(ActiveDistribution {
-        dist: GameDefPlatform::Origin {
+        dist: GamePlatform::Origin {
             identifier: ident.to_string(),
         },
         game_dir: game_dir.to_path_buf(),

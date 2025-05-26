@@ -6,7 +6,7 @@ use super::ImportOverrides;
 use crate::error::Error;
 use crate::game::error::GameError;
 use crate::game::registry::ActiveDistribution;
-use crate::ts::v1::models::ecosystem::{GameDef, GameDefPlatform};
+use crate::ts::v1::models::ecosystem::{GameDef, GamePlatform};
 
 pub fn get_gamedist(app_id: u32, steam_dir: Option<&Path>, game_def: &GameDef, overrides: &ImportOverrides) -> Result<Option<ActiveDistribution>, Error> {
     // If an app_dir is provided then we can skip automatic path resolution. If not,
@@ -59,7 +59,7 @@ pub fn get_gamedist(app_id: u32, steam_dir: Option<&Path>, game_def: &GameDef, o
         })?;
 
     Ok(Some(ActiveDistribution {
-        dist: GameDefPlatform::Steam {
+        dist: GamePlatform::Steam {
             identifier: app_id.to_string(),
         },
         data_dir: app_dir.join(&r2mm.data_folder_name),

@@ -11,7 +11,7 @@ use once_cell::sync::Lazy;
 use project::error::ProjectError;
 use project::ProjectKind;
 use ts::error::ApiError;
-use ts::v1::models::ecosystem::GameDefPlatform;
+use ts::v1::models::ecosystem::GamePlatform;
 use wildmatch::WildMatch;
 
 use crate::cli::{Args, Commands, ListSubcommand};
@@ -190,7 +190,7 @@ async fn main() -> Result<(), Error> {
             let import_base = ImportBase::new(&game_id).await?.with_overrides(overrides);
 
             if let Some(platform) = platform {
-                let platform = GameDefPlatform::new_from_name(&game_id, &platform).await?;
+                let platform = GamePlatform::new_from_name(&game_id, &platform).await?;
                 let dist = import_base.get_active_dist(&platform)?;
 
                 if dist.is_none() {

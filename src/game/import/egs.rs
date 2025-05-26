@@ -7,7 +7,7 @@ use super::ImportOverrides;
 use crate::error::{Error, IoError};
 use crate::game::error::GameError;
 use crate::game::registry::ActiveDistribution;
-use crate::ts::v1::models::ecosystem::{GameDef, GameDefPlatform};
+use crate::ts::v1::models::ecosystem::{GameDef, GamePlatform};
 use crate::util::reg::{self, HKey};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -73,7 +73,7 @@ pub fn get_gamedist(ident: &str, game_def: &GameDef, overrides: &ImportOverrides
         })?;
 
     Ok(Some(ActiveDistribution {
-        dist: GameDefPlatform::Other,
+        dist: GamePlatform::Other,
         game_dir: game_dir.to_path_buf(),
         data_dir: game_dir.join(&r2mm.data_folder_name),
         exe_path,

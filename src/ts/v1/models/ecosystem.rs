@@ -24,7 +24,7 @@ pub struct GameDef {
     pub uuid: String,
     pub label: String,
     pub meta: GameDefMeta,
-    pub distributions: Vec<GameDefPlatform>,
+    pub distributions: Vec<GamePlatform>,
     pub r2modman: Option<Vec<GameDefR2MM>>,
     pub thunderstore: Option<GameDefThunderstore>,
 }
@@ -40,7 +40,7 @@ pub struct GameDefMeta {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, clap::Subcommand)]
 #[serde(tag = "platform")]
 #[serde(rename_all = "kebab-case")]
-pub enum GameDefPlatform {
+pub enum GamePlatform {
     EpicGamesStore {
         identifier: String,
     },
@@ -60,29 +60,29 @@ pub enum GameDefPlatform {
     Other,
 }
 
-impl GameDefPlatform {
+impl GamePlatform {
     /// Hardcoding these for now until we integrate this sorta thing into
     /// the ecosystem schema, preferably as a compile time check.
     pub fn ident_from_name<'a>(&'a self, name: &str) -> Option<&'a str> {
         match (name, self) {
-            ("epic-games-store", GameDefPlatform::EpicGamesStore { identifier }) => Some(identifier),
-            ("gamepass", GameDefPlatform::XboxGamePass { identifier }) => Some(identifier),
-            ("origin" | "ea", GameDefPlatform::Origin { identifier }) => Some(identifier),
-            ("steam", GameDefPlatform::Steam { identifier }) => Some(identifier),
-            ("steam-direct", GameDefPlatform::SteamDirect { identifier }) => Some(identifier),
+            ("epic-games-store", GamePlatform::EpicGamesStore { identifier }) => Some(identifier),
+            ("gamepass", GamePlatform::XboxGamePass { identifier }) => Some(identifier),
+            ("origin" | "ea", GamePlatform::Origin { identifier }) => Some(identifier),
+            ("steam", GamePlatform::Steam { identifier }) => Some(identifier),
+            ("steam-direct", GamePlatform::SteamDirect { identifier }) => Some(identifier),
             _ => None,
         }
     }
 
     pub fn get_platform_name(&self) -> &'static str {
         match self {
-            GameDefPlatform::EpicGamesStore { identifier: _ } => "epic-games-store",
-            GameDefPlatform::XboxGamePass { identifier: _ } => "gamepass",
-            GameDefPlatform::Origin { identifier: _ } => "origin",
-            GameDefPlatform::Steam { identifier: _ } => "steam",
-            GameDefPlatform::SteamDirect { identifier: _ } => "steam-direct",
-            GameDefPlatform::OculusStore => "oculus-store",
-            GameDefPlatform::Other => "other",
+            GamePlatform::EpicGamesStore { identifier: _ } => "epic-games-store",
+            GamePlatform::XboxGamePass { identifier: _ } => "gamepass",
+            GamePlatform::Origin { identifier: _ } => "origin",
+            GamePlatform::Steam { identifier: _ } => "steam",
+            GamePlatform::SteamDirect { identifier: _ } => "steam-direct",
+            GamePlatform::OculusStore => "oculus-store",
+            GamePlatform::Other => "other",
         }
     }
 
@@ -121,7 +121,7 @@ pub struct GameDefR2MM {
     pub meta: GameDefMeta,
     pub internal_folder_name: String,
     pub data_folder_name: String,
-    pub distributions: Vec<GameDefPlatform>,
+    pub distributions: Vec<GamePlatform>,
     pub settings_identifier: String,
     pub package_index: String,
     pub steam_folder_name: String,
