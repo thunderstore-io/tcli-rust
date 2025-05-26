@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
-use crate::ts::v1::models::ecosystem::GameDefPlatform;
+use crate::ts::v1::models::ecosystem::GamePlatform;
 use crate::util::os::OS;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -14,12 +14,12 @@ pub struct GameData {
     pub identifier: String,
     pub display_name: String,
     pub active_distribution: ActiveDistribution,
-    pub possible_distributions: Vec<GameDefPlatform>,
+    pub possible_distributions: Vec<GamePlatform>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ActiveDistribution {
-    pub dist: GameDefPlatform,
+    pub dist: GamePlatform,
     pub game_dir: PathBuf,
     pub data_dir: PathBuf,
     pub exe_path: PathBuf,
