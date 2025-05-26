@@ -190,7 +190,7 @@ async fn main() -> Result<(), Error> {
             let import_base = ImportBase::new(&game_id).await?.with_overrides(overrides);
 
             if let Some(platform) = platform {
-                let platform = GamePlatform::new_from_name(&game_id, &platform).await?;
+                let platform = game::import::plat_from_name(&game_id, &platform).await?;
                 let dist = import_base.get_active_dist(&platform)?;
 
                 if dist.is_none() {

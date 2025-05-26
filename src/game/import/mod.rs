@@ -125,6 +125,21 @@ pub fn find_game_exe(possible: &[String], base_path: &Path) -> Option<PathBuf> {
         .find(|x| x.is_file())
 }
 
+/// Convert the provided game id and platform name to a full GamePlatform instance, if
+/// one can be found in the ecosystem schema.
+pub async fn plat_from_name(game_id: &str, plat_name: &str) -> Result<GamePlatform, Error> {
+    let ecosystem = ecosystem::get_schema().await?;
+    let game = ecosystem.games.get(game_id)
+        .ok_or(GameError::BadGameId(game_id.into()))?;
+
+    game
+        .distributions
+        .iter()
+        .find(|x| x.get_platform_name() == plat_name)
+        .ok_or(GameError::NotSupported(game_id.into(), plat_name.into()).into())
+        .cloned()
+}
+
 pub fn construct_data(base: ImportBase, dist: ActiveDistribution) -> GameData {
     GameData {
         identifier: base

@@ -97,22 +97,6 @@ impl GamePlatform {
             "other",
         ]
     }
-
-    /// Create a new instance of self from the provided platform name and identifier, if
-    /// a valid one can be found.
-    pub async fn new_from_name(game_id: &str, plat_name: &str) -> Result<Self, Error> {
-        let ecosystem = ecosystem::get_schema().await?;
-        let game = ecosystem.games.get(game_id)
-            .ok_or(GameError::BadGameId(game_id.into()))?;
-
-        game
-            .distributions
-            .iter()
-            .find(|x| x.get_platform_name() == plat_name)
-            .ok_or(GameError::NotSupported(game_id.into(), plat_name.into()).into())
-            .cloned()
-    }
-
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
