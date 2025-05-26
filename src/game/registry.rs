@@ -17,7 +17,7 @@ pub struct GameData {
     pub possible_distributions: Vec<GameDefPlatform>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ActiveDistribution {
     pub dist: GameDefPlatform,
     pub game_dir: PathBuf,

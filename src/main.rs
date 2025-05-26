@@ -5,19 +5,18 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use cli::{ExternSubcommand, InitSubcommand};
-use colored::Colorize;
 use directories::BaseDirs;
 use error::{Error, IoError};
-use game::import::GameImporter;
 use once_cell::sync::Lazy;
 use project::error::ProjectError;
 use project::ProjectKind;
 use ts::error::ApiError;
+use ts::v1::models::ecosystem::GameDefPlatform;
 use wildmatch::WildMatch;
 
 use crate::cli::{Args, Commands, ListSubcommand};
 use crate::config::Vars;
-use crate::game::import::{self, ImportBase, ImportOverrides};
+use crate::game::import::{ImportBase, ImportOverrides};
 use crate::game::{ecosystem, registry};
 use crate::package::resolver::DependencyGraph;
 use crate::package::Package;
@@ -183,40 +182,30 @@ async fn main() -> Result<(), Error> {
             let overrides = ImportOverrides {
                 custom_name,
                 custom_id,
+                steam_dir,
                 custom_exe: None,
                 game_dir: game_dir.clone(),
             };
+
             let import_base = ImportBase::new(&game_id).await?.with_overrides(overrides);
 
-            if platform.is_none() {
-                let importer = import::select_importer(&import_base)?;
-                let game_data = importer.construct(import_base)?;
+            if let Some(platform) = platform {
+                let platform = GameDefPlatform::new_from_name(&game_id, &platform).await?;
+                let dist = import_base.get_active_dist(&platform)?;
+
+                if dist.is_none() {
+                    panic!("No valid platform found for the provided game id.");
+                }
+
+                let game_data = import_base.make_gamedata(dist.unwrap());
                 return project.add_game_data(game_data);
             }
 
-            // Hacky fix for now
-            let platform = platform.unwrap();
-            let dists = &import_base.game_def.distributions;
-            let ident = dists.iter().find_map(|x| x.ident_from_name(&platform));
+            // Automatically choose the platform if one is not specified.
+            let dists = import_base.get_active_dists()?;
+            let game_data = import_base.make_gamedata(dists[0].clone());
 
-            let importer: Box<dyn GameImporter> = match (ident, platform.as_str()) {
-                (Some(ident), "steam") => {
-                    Box::new(import::steam::SteamImporter::new(ident).with_steam_dir(steam_dir))
-                        as _
-                }
-                (None, "nodrm") => Box::new(import::nodrm::NoDrmImporter::new(
-                    game_dir.as_ref().unwrap(),
-                )) as _,
-                _ => panic!("Manually importing games from '{platform}' is not implemented"),
-            };
-            let game_data = importer.construct(import_base)?;
-            let res = project.add_game_data(game_data);
-            println!(
-                "{} has been imported into the current project",
-                game_id.green()
-            );
-
-            res
+            project.add_game_data(game_data)
         }
 
         Commands::Run {
@@ -365,11 +354,11 @@ async fn main() -> Result<(), Error> {
             match command {
                 ExternSubcommand::GameData { game_id } => {
                     let base = ImportBase::new(&game_id).await?;
-                    let game_data = import::select_importer(&base)?.construct(base)?;
+                    let dists = base.get_active_dists()?;
 
                     println!(
                         "{}",
-                        serde_json::to_string_pretty(&game_data.active_distribution)?
+                        serde_json::to_string_pretty(&dists)?
                     );
                 }
             }

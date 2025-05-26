@@ -2,7 +2,11 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::Error;
 use crate::ts::version::Version;
+use crate::game::ecosystem;
+use crate::game::error::GameError;
+
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -11,6 +15,7 @@ pub struct EcosystemSchema {
     pub games: HashMap<String, GameDef>,
     pub communities: HashMap<String, SchemaCommunity>,
     pub modloader_packages: Vec<R2MMModLoaderPackage>,
+    pub package_installers: HashMap<String, PackageInstaller>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -20,27 +25,26 @@ pub struct GameDef {
     pub label: String,
     pub meta: GameDefMeta,
     pub distributions: Vec<GameDefPlatform>,
-    pub r2modman: Option<GameDefR2MM>,
+    pub r2modman: Option<Vec<GameDefR2MM>>,
     pub thunderstore: Option<GameDefThunderstore>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GameDefMeta {
+    #[serde(default)]
     pub display_name: String,
     pub icon_url: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, clap::Subcommand)]
 #[serde(tag = "platform")]
 #[serde(rename_all = "kebab-case")]
 pub enum GameDefPlatform {
-    #[serde(rename = "epic-games-store")]
-    EpicGames {
+    EpicGamesStore {
         identifier: String,
     },
-    #[serde(rename = "xbox-game-pass")]
-    GamePass {
+    XboxGamePass {
         identifier: String,
     },
     Origin {
@@ -52,8 +56,7 @@ pub enum GameDefPlatform {
     SteamDirect {
         identifier: String,
     },
-    #[serde(rename = "oculus-store")]
-    Oculus,
+    OculusStore,
     Other,
 }
 
@@ -61,19 +64,25 @@ impl GameDefPlatform {
     /// Hardcoding these for now until we integrate this sorta thing into
     /// the ecosystem schema, preferably as a compile time check.
     pub fn ident_from_name<'a>(&'a self, name: &str) -> Option<&'a str> {
-        match self {
-            GameDefPlatform::EpicGames { identifier } if name == "epic-games-store" => {
-                Some(identifier)
-            }
-            GameDefPlatform::GamePass { identifier } if name == "gamepass" => Some(identifier),
-            GameDefPlatform::Origin { identifier } if name == "origin" || name == "ea" => {
-                Some(identifier)
-            }
-            GameDefPlatform::Steam { identifier } if name == "steam" => Some(identifier),
-            GameDefPlatform::SteamDirect { identifier } if name == "steam-direct" => {
-                Some(identifier)
-            }
+        match (name, self) {
+            ("epic-games-store", GameDefPlatform::EpicGamesStore { identifier }) => Some(identifier),
+            ("gamepass", GameDefPlatform::XboxGamePass { identifier }) => Some(identifier),
+            ("origin" | "ea", GameDefPlatform::Origin { identifier }) => Some(identifier),
+            ("steam", GameDefPlatform::Steam { identifier }) => Some(identifier),
+            ("steam-direct", GameDefPlatform::SteamDirect { identifier }) => Some(identifier),
             _ => None,
+        }
+    }
+
+    pub fn get_platform_name(&self) -> &'static str {
+        match self {
+            GameDefPlatform::EpicGamesStore { identifier: _ } => "epic-games-store",
+            GameDefPlatform::XboxGamePass { identifier: _ } => "gamepass",
+            GameDefPlatform::Origin { identifier: _ } => "origin",
+            GameDefPlatform::Steam { identifier: _ } => "steam",
+            GameDefPlatform::SteamDirect { identifier: _ } => "steam-direct",
+            GameDefPlatform::OculusStore => "oculus-store",
+            GameDefPlatform::Other => "other",
         }
     }
 
@@ -88,19 +97,39 @@ impl GameDefPlatform {
             "other",
         ]
     }
+
+    /// Create a new instance of self from the provided platform name and identifier, if
+    /// a valid one can be found.
+    pub async fn new_from_name(game_id: &str, plat_name: &str) -> Result<Self, Error> {
+        let ecosystem = ecosystem::get_schema().await?;
+        let game = ecosystem.games.get(game_id)
+            .ok_or(GameError::BadGameId(game_id.into()))?;
+
+        game
+            .distributions
+            .iter()
+            .find(|x| x.get_platform_name() == plat_name)
+            .ok_or(GameError::NotSupported(game_id.into(), plat_name.into()).into())
+            .cloned()
+    }
+
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GameDefR2MM {
+    pub meta: GameDefMeta,
     pub internal_folder_name: String,
     pub data_folder_name: String,
+    pub distributions: Vec<GameDefPlatform>,
     pub settings_identifier: String,
     pub package_index: String,
     pub steam_folder_name: String,
     pub exe_names: Vec<String>,
     pub game_instance_type: String,
     pub game_selection_display_mode: String,
+    pub additional_search_strings: Vec<String>,
+    pub package_loader: Option<String>,
     pub install_rules: Vec<R2MMInstallRule>,
     pub relative_file_exclusions: Option<Vec<String>>,
 }
@@ -114,13 +143,19 @@ pub struct R2MMModLoaderPackage {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PackageInstaller {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct R2MMInstallRule {
     pub route: String,
     pub tracking_method: Option<String>,
-    pub children: Option<Vec<R2MMInstallRule>>,
+    pub sub_routes: Option<Vec<R2MMInstallRule>>,
     pub default_file_extensions: Option<Vec<String>>,
-    pub is_default_location: Option<bool>,
+    pub is_default_location: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
