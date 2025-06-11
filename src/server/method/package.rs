@@ -32,7 +32,7 @@ impl PackageMethod {
         match self {
             Self::GetMetadata(data) => {
                 let index = PackageIndex::open(&TCLI_HOME).await?;
-                let package = index.get_package(&data.package).unwrap();
+                let package = index.lock().unwrap().get_package(&data.package).unwrap();
                 rt.send(Response::data_ok(Id::String("diowadaw".into()), package));
             }
             Self::IsCached(data) => {

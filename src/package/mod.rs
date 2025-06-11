@@ -107,7 +107,7 @@ impl Package {
         let ident = ident.borrow();
 
         let index = PackageIndex::open(&TCLI_HOME).await?;
-        let package = index.get_package(ident).unwrap();
+        let package = index.lock().unwrap().get_package(ident).unwrap();
 
         Ok(Package {
             identifier: ident.clone(),

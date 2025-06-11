@@ -225,6 +225,8 @@ pub async fn resolve_packages(packages: Vec<PackageReference>) -> Result<Depende
 
     while let Some(package_ident) = iter_queue.pop_front() {
         let package = package_index
+            .lock()
+            .unwrap()
             .get_package(package_ident.as_ref())
             .unwrap_or_else(|| panic!("{} does not exist in the index.", package_ident));
 

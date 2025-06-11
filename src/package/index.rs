@@ -1,8 +1,10 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fs::{self, File};
+use std::mem;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 use chrono::NaiveDateTime;
 use futures_util::StreamExt;
@@ -19,6 +21,10 @@ use crate::ts::package_reference::PackageReference;
 use crate::ts::version::Version;
 use crate::util::file;
 
+// Memory cache for the package index. We set this when we initially load the index lookup table
+// so we don't need to query the disk, however we must also be able to update it when necessary.
+static INDEX_CACHE: OnceCell<Mutex<PackageIndex>> = OnceCell::new();
+
 #[derive(Serialize, Deserialize)]
 struct IndexHeader {
     update_time: NaiveDateTime,
@@ -33,6 +39,7 @@ struct IndexHeader {
 /// 3. The index. This contains a series of newline-delimited json strings, unparsed and unserialized.
 #[derive(Debug)]
 pub struct PackageIndex {
+    update_time: NaiveDateTime,
     lookup: Vec<LookupTableEntry>,
 
     strict_lookup: HashMap<String, usize>,
@@ -146,16 +153,15 @@ impl PackageIndex {
     }
 
     /// Open and serialize the on-disk index, retrieving a fresh copy if it doesn't already exist.
-    pub async fn open(tcli_home: &Path) -> Result<&PackageIndex, Error> {
+    pub async fn open(tcli_home: &Path) -> Result<&Mutex<PackageIndex>, Error> {
         // Sync the index before we open it if it's in an invalid state.
         if !is_index_valid(tcli_home) {
             PackageIndex::sync(tcli_home).await?;
         }
 
         // Maintain a cached version of the index so subsequent calls don't trigger a complete reload.
-        static CACHE: OnceCell<PackageIndex> = OnceCell::new();
-        if let Some(index) = CACHE.get() {
-            return Ok(index);
+        if let Some(index) = INDEX_CACHE.get() {
+            return Ok(&index);
         }
 
         let index_dir = tcli_home.join("index");
@@ -180,16 +186,23 @@ impl PackageIndex {
         }
 
         let index_file = File::open(index_dir.join("index.json"))?;
+        let header: IndexHeader = {
+            let header = fs::read_to_string(index_dir.join("header.json"))?;
+            serde_json::from_str(&header)
+        }?;
 
         let index = PackageIndex {
+            update_time: header.update_time,
             lookup: entries,
             loose_lookup: loose,
             strict_lookup: strict,
             index_file,
         };
-        CACHE.set(index).unwrap();
 
-        Ok(CACHE.get().unwrap())
+        // Set or otherwise update the memory cache.
+        hydrate_cache(index);
+
+        Ok(&INDEX_CACHE.get().unwrap())
     }
 
     /// Get a package which matches the given package reference.
@@ -233,7 +246,7 @@ impl PackageIndex {
 }
 
 /// Determine if the index is in a valid state or not.
-pub fn is_index_valid(tcli_home: &Path) -> bool {
+fn is_index_valid(tcli_home: &Path) -> bool {
     let index_dir = tcli_home.join("index");
 
     let lookup = index_dir.join("lookup.json");
@@ -241,4 +254,37 @@ pub fn is_index_valid(tcli_home: &Path) -> bool {
     let header = index_dir.join("header.json");
 
     index_dir.exists() && lookup.exists() && index.exists() && header.exists()
+}
+
+/// Determine if the in-memory cache is older than the index on disk.
+fn is_cache_expired(tcli_home: &Path) -> bool {
+    let index_dir = tcli_home.join("index");
+    let Ok(header) = fs::read_to_string(index_dir.join("header.json")) else {
+        warn!("Failed to read from index header, invalidating the cache.");
+        return true;
+    };
+
+    let Ok(header) = serde_json::from_str::<IndexHeader>(&header) else {
+        return true;
+    };
+
+    if let Some(index) = INDEX_CACHE.get() {
+        let index = index.lock().unwrap();
+        index.update_time != header.update_time
+    } else {
+        true
+    }
+}
+
+/// Init the cache or hydrate it with updated data.
+fn hydrate_cache(index: PackageIndex) {
+    // If the cache hasn't set, do so and stop.
+    if INDEX_CACHE.get().is_none() {
+        INDEX_CACHE.get_or_init(|| Mutex::new(index));
+        return;
+    };
+
+    // Otherwise update the cache.
+    let cache = INDEX_CACHE.get().unwrap();
+    let _ = mem::replace(&mut *cache.lock().unwrap(), index);
 }
