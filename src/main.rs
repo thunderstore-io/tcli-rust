@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::io;
+use std::{env, io};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -23,6 +23,7 @@ use crate::package::Package;
 use crate::project::lock::LockFile;
 use crate::project::overrides::ProjectOverrides;
 use crate::project::Project;
+use crate::ts::experimental;
 use crate::ui::reporter::IndicatifReporter;
 
 mod cli;
@@ -50,7 +51,19 @@ async fn main() -> Result<(), Error> {
         std::fs::create_dir_all(TCLI_HOME.as_path())?;
     }
 
-    let test: Result<(), Error> = match Args::parse().commands {
+    let args = env::args().collect::<Vec<_>>();
+    let args = args
+        .iter()
+        .position(|x| x == "--json")
+        .and_then(|x| {
+            let json = &args.get(x + 1)
+                .expect("Missing JSON argument.");
+            serde_json::from_str(json)
+                .expect("Recieved an invalid JSON object as an argument.")
+        })
+        .unwrap_or_else(Args::parse);
+
+    let test: Result<(), Error> = match args.commands {
         Commands::Init {
             command,
             overwrite,
