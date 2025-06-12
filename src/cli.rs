@@ -1,21 +1,24 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
 
 use crate::ts::package_reference::PackageReference;
 use crate::ts::version::Version;
 use crate::util::os::OS;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Serialize, Deserialize, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     #[clap(subcommand)]
+    #[serde(flatten)]
     pub commands: Commands,
 }
 
 const DEFAULT_MANIFEST: &str = "./";
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum InitSubcommand {
     /// Creates a tcli project which can be used to build and publish a package.
     Project {
@@ -35,7 +38,8 @@ pub enum InitSubcommand {
     Profile,
 }
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
 pub enum ListSubcommand {
     /// List the platforms tcli supports.
     Platforms {
@@ -67,7 +71,7 @@ pub enum ListSubcommand {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Serialize, Deserialize, Debug)]
 pub enum ExternSubcommand {
     /// Get the path of a game with the specified label.
     GameData {
@@ -79,7 +83,8 @@ pub enum ExternSubcommand {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum Commands {
     /// Initialize a new project configuration.
     Init {
