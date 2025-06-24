@@ -35,7 +35,7 @@ pub trait PackageInstaller<T: TrackedFs> {
     /// `state_dir` is the directory that is "linked" to at runtime by the modloader.
     /// `staging_dir` is the directory that contains files that are directly installed into the game directory.
     async fn install_package(
-        &self,
+        &mut self,
         package: &PackageReference,
         package_deps: &[PackageReference],
         package_dir: &Path,
@@ -47,7 +47,7 @@ pub trait PackageInstaller<T: TrackedFs> {
 
     /// Uninstall a package from this profile.
     async fn uninstall_package(
-        &self,
+        &mut self,
         package: &PackageReference,
         package_deps: &[PackageReference],
         package_dir: &Path,
