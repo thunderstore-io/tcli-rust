@@ -123,7 +123,23 @@ pub struct GameDefR2MM {
 pub struct R2MMModLoaderPackage {
     pub package_id: String,
     pub root_folder: String,
-    pub loader: String,
+    pub loader: R2MLLoader,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum R2MLLoader {
+    BepInEx,
+    GDWeave,
+    GodotML,
+    Lovely,
+    MelonLoader,
+    Northstar,
+    #[serde(rename = "recursive-melonloader")]
+    RecursiveMelonLoader,
+    #[serde(rename = "return-of-modding")]
+    ReturnOfModding,
+    Shimloader,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
