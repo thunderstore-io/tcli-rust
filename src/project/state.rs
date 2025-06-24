@@ -37,10 +37,24 @@ impl StagedFile {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct StateEntry {
     pub staged: Vec<StagedFile>,
     pub linked: Vec<TrackedFile>,
+}
+
+impl StateEntry {
+    /// Add a new staged file. If overwrite is set then already existing
+    /// entries with the same path will be replaced.
+    pub fn add_staged(&mut self, file: StagedFile, overwrite: bool) {
+        todo!()
+    }
+
+    /// Add a new linked file. If overwrite is set then already existing
+    /// entries with the same path will be replaced.
+    pub fn add_linked(&mut self, file: TrackedFile, overwrite: bool) {
+        todo!()
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]

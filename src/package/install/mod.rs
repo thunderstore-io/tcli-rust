@@ -15,11 +15,58 @@ use super::error::PackageError;
 use super::Package;
 use crate::error::Error;
 use crate::error::IoError;
+use crate::package::install::bepinex::BpxInstaller;
+use crate::package::install::tracked::ConcreteFs;
+use crate::package::install::tracked::TrackedFs;
+use crate::project::state::StateEntry;
+use crate::ts::package_reference::PackageReference;
+use crate::ts::v1::models::ecosystem::R2MLLoader;
 use crate::ui::reporter::{Progress, ProgressBarTrait, VoidProgress};
 
 pub mod api;
 mod legacy_compat;
 pub mod manifest;
+pub mod bepinex;
+mod tracked;
+
+pub trait PackageInstaller<T: TrackedFs> {
+    /// Install a package into this profile.
+    /// 
+    /// `state_dir` is the directory that is "linked" to at runtime by the modloader.
+    /// `staging_dir` is the directory that contains files that are directly installed into the game directory.
+    async fn install_package(
+        &self,
+        package: &PackageReference,
+        package_deps: &[PackageReference],
+        package_dir: &Path,
+        state_dir: &Path,
+        staging_dir: &Path,
+        game_dir: &Path,
+        is_modloader: bool,
+    ) -> Result<(), Error>;
+
+    /// Uninstall a package from this profile.
+    async fn uninstall_package(
+        &self,
+        package: &PackageReference,
+        package_deps: &[PackageReference],
+        package_dir: &Path,
+        state_dir: &Path,
+        staging_dir: &Path,
+        game_dir: &Path,
+        is_modloader: bool,
+    ) -> Result<(), Error>;
+
+}
+
+
+/// Get the proper installer for the provided modloader variant.
+pub fn get_installer<T: TrackedFs>(ml_variant: &R2MLLoader, fs: T) -> Option<impl PackageInstaller<T>> {
+    match ml_variant {
+        R2MLLoader::BepInEx => Some(BpxInstaller::new(fs)),
+        _ => None,
+    }
+}
 
 pub struct Installer {
     pub exec_path: PathBuf,
@@ -119,6 +166,14 @@ impl Installer {
     ) -> Result<Vec<TrackedFile>, Error> {
         // Determine if the package is a modloader or not.
         let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
+        BpxInstaller::new(ConcreteFs::new(StateEntry::default()));
+
+        let fs = ConcreteFs::new(StateEntry::default());
+        let test = get_installer(&R2MLLoader::BepInEx, fs);
+
+        // bepinex::install_package(package.identifier.clone(), &package.dependencies, package_dir, state_dir, staging_dir, is_modloader).await;
+
+        panic!();
 
         let request = Request::PackageInstall {
             is_modloader,

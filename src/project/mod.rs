@@ -34,8 +34,8 @@ pub mod error;
 pub mod lock;
 pub mod manifest;
 pub mod overrides;
-mod publish;
-mod state;
+pub mod publish;
+pub mod state;
 
 pub enum ProjectKind {
     Dev(ProjectOverrides),
