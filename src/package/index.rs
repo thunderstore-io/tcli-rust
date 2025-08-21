@@ -165,6 +165,19 @@ impl PackageIndex {
         }
 
         let index_dir = tcli_home.join("index");
+
+        let lookup = index_dir.join("lookup.json");
+        let index = index_dir.join("index.json");
+        let header = index_dir.join("header.json");
+
+        if !index_dir.is_dir() {
+            fs::create_dir(&index_dir)?;
+        }
+
+        if !lookup.is_file() || !index.is_file() || !header.is_file() {
+            PackageIndex::sync(tcli_home).await?;
+        }
+
         let lookup: HashMap<PackageReference, LookupTableEntry> = {
             let contents = fs::read_to_string(index_dir.join("lookup.json"))?;
             serde_json::from_str(&contents)?
