@@ -1,320 +1,95 @@
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
-use colored::Colorize;
-use tokio::io::AsyncReadExt;
-use tokio::process::Command;
-
-use self::api::Response;
-use self::api::PROTOCOL_VERSION;
-use self::api::{Request, TrackedFile};
-use self::manifest::InstallerManifest;
-use super::error::PackageError;
-use super::Package;
 use crate::error::Error;
-use crate::error::IoError;
+use crate::game::ecosystem;
 use crate::package::install::bepinex::BpxInstaller;
-use crate::package::install::tracked::ConcreteFs;
 use crate::package::install::tracked::TrackedFs;
+use crate::package::Package;
 use crate::project::state::StateEntry;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::v1::models::ecosystem::R2MLLoader;
-use crate::ui::reporter::{Progress, ProgressBarTrait, VoidProgress};
 
 pub mod api;
 mod legacy_compat;
 pub mod manifest;
 pub mod bepinex;
-mod tracked;
+pub mod tracked;
 
-pub trait PackageInstaller<T: TrackedFs> {
+pub trait PackageInstaller {
     /// Install a package into this profile.
     /// 
     /// `state_dir` is the directory that is "linked" to at runtime by the modloader.
     /// `staging_dir` is the directory that contains files that are directly installed into the game directory.
     async fn install_package(
         &mut self,
-        package: &PackageReference,
-        package_deps: &[PackageReference],
+        package: &Package,
         package_dir: &Path,
         state_dir: &Path,
         staging_dir: &Path,
-        game_dir: &Path,
         is_modloader: bool,
     ) -> Result<(), Error>;
 
     /// Uninstall a package from this profile.
     async fn uninstall_package(
         &mut self,
-        package: &PackageReference,
-        package_deps: &[PackageReference],
+        package: &Package,
         package_dir: &Path,
         state_dir: &Path,
         staging_dir: &Path,
-        game_dir: &Path,
         is_modloader: bool,
     ) -> Result<(), Error>;
 
-}
-
-
-/// Get the proper installer for the provided modloader variant.
-pub fn get_installer<T: TrackedFs>(ml_variant: &R2MLLoader, fs: T) -> Option<impl PackageInstaller<T>> {
-    match ml_variant {
-        R2MLLoader::BepInEx => Some(BpxInstaller::new(fs)),
-        _ => None,
-    }
-}
-
-pub struct Installer {
-    pub exec_path: PathBuf,
-}
-
-impl Installer {
-    /// Loads the given package as an Installer and prepares it for execution.
-    /// Note that cached installers can skip the prepare step.
-    pub async fn load_and_prepare(package: &Package) -> Result<Installer, Error> {
-        // Temp, we'll figure out a good solution from the progress reporter later.
-        let test = VoidProgress {};
-        let cache_dir = match package.get_path().await {
-            Some(x) => x,
-            None => package.download(test.add_bar().as_ref()).await?,
-        };
-
-        let manifest = {
-            let path = cache_dir.join("installer.json");
-            if !path.is_file() {
-                Err(PackageError::InstallerNoManifest)?
-            } else {
-                let contents = fs::read_to_string(path)?;
-                serde_json::from_str::<InstallerManifest>(&contents)?
-            }
-        };
-
-        // Determine the absolute path of the installer's executable based on the current architecture.
-        let current_arch = env::consts::ARCH;
-        let current_os = env::consts::OS;
-
-        let matrix = manifest
-            .matrix
-            .iter()
-            .find(|x| {
-                x.architecture.to_string() == current_arch && x.target_os.to_string() == current_os
-            })
-            .ok_or(PackageError::InstallerNotExecutable)?;
-
-        let exec_path = {
-            let abs = cache_dir.join(&matrix.executable);
-
-            if abs.is_file() {
-                Ok(abs)
-            } else {
-                Err(IoError::FileNotFound(abs))
-            }
-        }?;
-
-        let installer = Installer { exec_path };
-
-        // Validate that the installer is (a) executable and (b) is using a valid protocol version.
-        let response = installer.run(&Request::Version).await?;
-        let Response::Version {
-            author: _,
-            identifier: _,
-            protocol,
-        } = response
-        else {
-            Err(PackageError::InstallerBadResponse {
-                package_id: package.identifier.to_string(),
-                message: "The installer did not respond with a valid or otherwise serializable Version response variant.".to_string(),
-            })?
-        };
-
-        if protocol.major != PROTOCOL_VERSION.major {
-            Err(PackageError::InstallerBadVersion {
-                package_id: package.identifier.to_string(),
-                given_version: protocol,
-                our_version: PROTOCOL_VERSION,
-            })?
-        }
-
-        Ok(installer)
-    }
-
-    pub fn override_new() -> Self {
-        let override_installer = PathBuf::from(std::env::var("TCLI_INSTALLER_OVERRIDE").unwrap());
-
-        if !override_installer.is_file() {
-            panic!(
-                "TCLI_INSTALLER_OVERRIDE is set to {}, which does not point to a file that actually exists.", override_installer.to_str().unwrap()
-            )
-        }
-
-        Installer {
-            exec_path: override_installer,
-        }
-    }
-
-    pub async fn install_package(
-        &self,
-        package: &Package,
-        package_dir: &Path,
-        state_dir: &Path,
-        staging_dir: &Path,
-        reporter: &dyn ProgressBarTrait,
-    ) -> Result<Vec<TrackedFile>, Error> {
-        // Determine if the package is a modloader or not.
-        let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
-        BpxInstaller::new(ConcreteFs::new(StateEntry::default()));
-
-        let fs = ConcreteFs::new(StateEntry::default());
-        let test = get_installer(&R2MLLoader::BepInEx, fs);
-
-        // bepinex::install_package(package.identifier.clone(), &package.dependencies, package_dir, state_dir, staging_dir, is_modloader).await;
-
-        panic!();
-
-        let request = Request::PackageInstall {
-            is_modloader,
-            package: package.identifier.clone(),
-            package_deps: package.dependencies.clone(),
-            package_dir: package_dir.to_path_buf(),
-            state_dir: state_dir.to_path_buf(),
-            staging_dir: staging_dir.to_path_buf(),
-        };
-
-        let progress_message = format!(
-            "{}-{} {}",
-            package.identifier.namespace.bold(),
-            package.identifier.name.bold(),
-            package.identifier.version.to_string().truecolor(90, 90, 90)
-        );
-        reporter.set_message(format!("Installing {progress_message}"));
-
-        let response = self.run(&request).await?;
-        match response {
-            Response::PackageInstall {
-                tracked_files,
-                post_hook_context: _,
-            } => Ok(tracked_files),
-
-            Response::Error { message } => Err(PackageError::InstallerError { message })?,
-
-            x => {
-                let message =
-                    format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
-
-                Err(PackageError::InstallerBadResponse {
-                    package_id: package.identifier.to_string(),
-                    message,
-                })?
-            }
-        }
-    }
-
-    pub async fn uninstall_package(
-        &self,
-        package: &Package,
-        package_dir: &Path,
-        state_dir: &Path,
-        staging_dir: &Path,
-        tracked_files: Vec<TrackedFile>,
-        reporter: &dyn ProgressBarTrait,
-    ) -> Result<(), Error> {
-        let is_modloader = package.identifier.name.to_lowercase().contains("bepinex");
-        let request = Request::PackageUninstall {
-            is_modloader,
-            package: package.identifier.clone(),
-            package_deps: package.dependencies.clone(),
-            package_dir: package_dir.to_path_buf(),
-            state_dir: state_dir.to_path_buf(),
-            staging_dir: staging_dir.to_path_buf(),
-            tracked_files,
-        };
-
-        let progress_message = format!(
-            "{}-{} {}",
-            package.identifier.namespace.bold(),
-            package.identifier.name.bold(),
-            package.identifier.version.to_string().truecolor(90, 90, 90)
-        );
-        reporter.set_message(format!("Uninstalling {progress_message}"));
-
-        let response = self.run(&request).await?;
-        match response {
-            Response::PackageUninstall {
-                post_hook_context: _,
-            } => Ok(()),
-            Response::Error { message } => Err(PackageError::InstallerError { message })?,
-            x => {
-                let message =
-                    format!("Didn't recieve one of the expected variants: Response::PackageInstall or Response::Error. Got: {x:#?}");
-
-                Err(PackageError::InstallerBadResponse {
-                    package_id: package.identifier.to_string(),
-                    message,
-                })?
-            }
-        }
-    }
-
-    /// Start the game and drop a PID file in the state directory of the current project.
-    pub async fn start_game(
-        &self,
+    /// Start the game.
+    async fn start_game(
         mods_enabled: bool,
         state_dir: &Path,
         game_dir: &Path,
         game_exe: &Path,
         args: Vec<String>,
-    ) -> Result<u32, Error> {
-        let request = Request::StartGame {
-            mods_enabled,
-            project_state: state_dir.to_path_buf(),
-            game_dir: game_dir.to_path_buf(),
-            game_exe: game_exe.to_path_buf(),
-            args,
-        };
+    ) -> Result<u32, Error>;
 
-        let response = self.run(&request).await?;
+    /// Extract the tracked state from this installer, consuming it.
+    fn extract_state(self) -> StateEntry;
+}
 
-        let Response::StartGame { pid } = response else {
-            panic!("Invalid response.");
-        };
-
-        Ok(pid)
+/// Get the proper installer for the provided modloader variant.
+pub fn get_installer<T: TrackedFs>(ml_variant: &R2MLLoader, fs: T) -> impl PackageInstaller {
+    match ml_variant {
+        R2MLLoader::BepInEx => BpxInstaller::new(fs),
+        _ => panic!("Support for modloader {ml_variant:?} has not been implemented."),
     }
+}
 
-    pub async fn run(&self, arg: &Request) -> Result<Response, Error> {
-        let args_json = serde_json::to_string(arg)?;
+/// Determine the modloader to use for the given packages.
+pub async fn guess_modloader(packages: &[PackageReference]) -> Option<R2MLLoader> {
+    let schema = ecosystem::get_schema().await.ok()?;
+    let ml: HashMap<String, R2MLLoader> = schema
+        .modloader_packages
+        .into_iter()
+        .map(|x| (x.package_id, x.loader))
+        .collect();
 
-        let child = Command::new(&self.exec_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .arg(&args_json)
-            .spawn()?;
+    packages
+        .iter()
+        .find_map(|x| ml.get(&x.to_loose_ident_string()).cloned())
+}
 
-        // Execute the installer, capturing and deserializing any output.
-        // TODO: Safety check here to warn / stop an installer from blowing up the heap.
-        let mut output_str = String::new();
-        child
-            .stdout
-            .unwrap()
-            .read_to_string(&mut output_str)
-            .await?;
+/// Determine which packages are modloaders.
+pub async fn get_modloader_packages(packages: &[PackageReference]) -> HashSet<String> {
+    let Ok(schema) = ecosystem::get_schema().await else {
+        return HashSet::new();
+    };
+    
+    let ml_ids: HashSet<String> = schema
+        .modloader_packages
+        .into_iter()
+        .map(|x| x.package_id)
+        .collect();
 
-        let mut err_str = String::new();
-        child.stderr.unwrap().read_to_string(&mut err_str).await?;
-
-        if !err_str.is_empty() {
-            println!("installer stderr:");
-            println!("{err_str}");
-        }
-
-        // println!("installer stdout:");
-        // println!("{output_str}");
-
-        let response = serde_json::from_str(&output_str)?;
-        Ok(response)
-    }
+    packages
+        .iter()
+        .filter(|x| ml_ids.contains(&x.to_loose_ident_string()))
+        .map(|x| x.to_loose_ident_string())
+        .collect()
 }

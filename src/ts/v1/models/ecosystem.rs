@@ -2,10 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Error;
 use crate::ts::version::Version;
-use crate::game::ecosystem;
-use crate::game::error::GameError;
 
 
 #[derive(Serialize, Deserialize, Debug)]

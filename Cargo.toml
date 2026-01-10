@@ -23,8 +23,10 @@ tokio = { version = "1.44", features = [
     "macros",
     "process",
     "rt-multi-thread",
+    "net",
 ] }
 tokio-util = { version = "0.7", features = ["io"] }
+tokio-tungstenite = "0.28"
 async-compression = { version = "0.4", features = ["futures-io", "gzip"] }
 
 # parsers, serializations, and other data processing

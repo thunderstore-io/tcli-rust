@@ -4,7 +4,7 @@ use super::Error;
 use crate::package::cache;
 use crate::package::index::PackageIndex;
 use crate::server::proto::{Id, Response};
-use crate::server::{Runtime, ServerError};
+use crate::server::{Runtime, ServerError, Transport};
 use crate::ts::package_reference::PackageReference;
 use crate::TCLI_HOME;
 
@@ -14,7 +14,7 @@ pub enum PackageMethod {
     GetMetadata(GetMetadata),
     /// Determine if the package exists within the cache.
     IsCached(IsCached),
-    /// Syncronize the package index.
+    /// Synchronize the package index.
     SyncIndex,
 }
 
@@ -28,20 +28,25 @@ impl PackageMethod {
         })
     }
 
-    pub async fn route(&self, rt: &mut Runtime) -> Result<(), Error> {
+    pub async fn route<T: Transport>(
+        &self,
+        id: Id,
+        rt: &Runtime,
+        transport: &mut T,
+    ) -> Result<(), Error> {
         match self {
             Self::GetMetadata(data) => {
                 let index = PackageIndex::open(&TCLI_HOME).await?;
                 let package = index.lock().unwrap().get_package(&data.package).unwrap();
-                rt.send(Response::data_ok(Id::String("diowadaw".into()), package));
+                rt.send_response(transport, Response::ok(id, package)).await;
             }
             Self::IsCached(data) => {
                 let is_cached = cache::is_cached(&data.package);
-                rt.send(Response::data_ok(Id::String("dwdawdwa".into()), is_cached));
+                rt.send_response(transport, Response::ok(id, is_cached)).await;
             }
             Self::SyncIndex => {
                 PackageIndex::sync(&TCLI_HOME).await?;
-                rt.send(Response::ok(Id::String("dwada".into())));
+                rt.send_response(transport, Response::ok(id, serde_json::json!({ "synced": true }))).await;
             }
         }
 

@@ -2,7 +2,7 @@ use std::path::Path;
 use tokio::fs;
 use walkdir::WalkDir;
 
-use crate::package::install::api::{FileAction, TrackedFile};
+use crate::package::install::api::{FileAction, LinkedFile};
 use crate::project::state::{StagedFile, StateEntry};
 
 use crate::error::Error;
@@ -63,7 +63,7 @@ impl TrackedFs for ConcreteFs {
 
     async fn file_copy(&mut self, src: &Path, dst: &Path, stage_dst: Option<&Path>) -> Result<(), Error> {
         fs::copy(src, dst).await?;
-        let tracked = TrackedFile { action: FileAction::Create, path: dst.to_path_buf(), context: None };
+        let tracked = LinkedFile { action: FileAction::Create, path: dst.to_path_buf(), context: None };
 
         if let Some(stage_dst) = stage_dst { 
             let mut staged = StagedFile::new(tracked)?;
@@ -76,7 +76,7 @@ impl TrackedFs for ConcreteFs {
         Ok(())
     }
 
-    async fn file_delete(&mut self, target: &Path, tracked: bool) { 
+    async fn file_delete(&mut self, _target: &Path, _tracked: bool) { 
         todo!()
     }
 
@@ -100,7 +100,7 @@ impl TrackedFs for ConcreteFs {
         Ok(())
     }
 
-    async fn dir_delete(&mut self, target: &Path, tracked: bool) {
+    async fn dir_delete(&mut self, _target: &Path, _tracked: bool) {
         todo!()
     }
 }

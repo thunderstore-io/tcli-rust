@@ -1,11 +1,12 @@
-use std::{fs, path::Path};
+use std::fs;
+use std::path::Path;
 
 use walkdir::WalkDir;
 
 use crate::error::Error;
 use crate::package::install::tracked::TrackedFs;
 use crate::package::install::PackageInstaller;
-use crate::ts::package_reference::PackageReference;
+use crate::package::Package;
 
 pub struct BpxInstaller<T: TrackedFs> {
     fs: T,
@@ -17,15 +18,13 @@ impl<T: TrackedFs> BpxInstaller<T> {
     }
 }
 
-impl<T: TrackedFs> PackageInstaller<T> for BpxInstaller<T> {
+impl<T: TrackedFs> PackageInstaller for BpxInstaller<T> {
     async fn install_package(
         &mut self,
-        package: &PackageReference,
-        _package_deps: &[PackageReference],
+        package: &Package,
         package_dir: &Path,
         state_dir: &Path,
-        _staging_dir: &Path,
-        game_dir: &Path,
+        staging_dir: &Path,
         is_modloader: bool,
     ) -> Result<(), Error> {
         if is_modloader {
@@ -51,7 +50,7 @@ impl<T: TrackedFs> PackageInstaller<T> for BpxInstaller<T> {
                 .filter(|x| x.path().is_file());
 
             for file in files {
-                let dest = game_dir.join(file.path().file_name().unwrap());
+                let dest = staging_dir.join(file.path().file_name().unwrap());
                 self.fs.file_copy(&file.path(), &dest, None).await?;
             }
 
@@ -59,7 +58,7 @@ impl<T: TrackedFs> PackageInstaller<T> for BpxInstaller<T> {
         }
 
         let state_dir = state_dir.canonicalize()?;
-        let full_name= format!("{}-{}", package.namespace, package.name);
+        let full_name= format!("{}-{}", package.identifier.namespace, package.identifier.name);
 
         let targets = vec![
             ("plugins", true),
@@ -137,14 +136,26 @@ impl<T: TrackedFs> PackageInstaller<T> for BpxInstaller<T> {
 
     async fn uninstall_package(
         &mut self,
-        _package: &PackageReference,
-        _package_deps: &[PackageReference],
+        _package: &Package,
         _package_dir: &Path,
         _state_dir: &Path,
         _staging_dir: &Path,
-        _game_dir: &Path,
         _is_modloader: bool,
     ) -> Result<(), Error> {
         todo!()
+    }
+    
+    async fn start_game(
+        _mods_enabled: bool,
+        _state_dir: &Path,
+        _game_dir: &Path,
+        _game_exe: &Path,
+        _args: Vec<String>,
+    ) -> Result<u32, Error> {
+        todo!()
+    }
+
+    fn extract_state(self) -> crate::project::state::StateEntry {
+        self.fs.extract_state()
     }
 }

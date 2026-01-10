@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-use std::{env, io};
+use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser;
 use cli::{ExternSubcommand, InitSubcommand};
@@ -11,7 +12,6 @@ use once_cell::sync::Lazy;
 use project::error::ProjectError;
 use project::ProjectKind;
 use ts::error::ApiError;
-use ts::v1::models::ecosystem::GamePlatform;
 use wildmatch::WildMatch;
 
 use crate::cli::{Args, Commands, ListSubcommand};
@@ -23,8 +23,7 @@ use crate::package::Package;
 use crate::project::lock::LockFile;
 use crate::project::overrides::ProjectOverrides;
 use crate::project::Project;
-use crate::ts::experimental;
-use crate::ui::reporter::IndicatifReporter;
+use crate::ui::progress::{self, TerminalSink};
 
 mod cli;
 mod config;
@@ -155,12 +154,11 @@ async fn main() -> Result<(), Error> {
             sync,
         } => {
             ts::init_repository("https://thunderstore.io", None);
-
-            let reporter = Box::new(IndicatifReporter);
+            progress::set_sink(Arc::new(TerminalSink::new()));
 
             let project = Project::open(&project_path)?;
             project.add_packages(&packages[..])?;
-            project.commit(reporter, sync).await?;
+            project.commit(sync).await?;
 
             Ok(())
         }
@@ -170,11 +168,11 @@ async fn main() -> Result<(), Error> {
             sync,
         } => {
             ts::init_repository("https://thunderstore.io", None);
-            let reporter = Box::new(IndicatifReporter);
+            progress::set_sink(Arc::new(TerminalSink::new()));
 
             let project = Project::open(&project_path)?;
             project.remove_packages(&packages[..])?;
-            project.commit(reporter, sync).await?;
+            project.commit(sync).await?;
 
             Ok(())
         }
@@ -356,9 +354,7 @@ async fn main() -> Result<(), Error> {
             }
         },
         Commands::Server { project_path } => {
-            let read = io::stdin();
-            let write = io::stdout();
-            server::spawn(read, write, &project_path).await?;
+            server::spawn_stdio(&project_path).await?;
 
             Ok(())
         }

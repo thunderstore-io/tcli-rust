@@ -1,21 +1,12 @@
 pub mod package;
 pub mod project;
 
-use std::sync::RwLock;
-
-use futures::channel::mpsc::Sender;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use self::package::PackageMethod;
 use self::project::ProjectMethod;
-use super::proto::Response;
 use super::{Error, ServerError};
-use crate::project::Project;
-
-pub trait Routeable {
-    async fn route(&self, ctx: RwLock<Project>, send: Sender<Result<Response, Error>>);
-}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum Method {

@@ -39,6 +39,7 @@ impl PackageReference {
                 .ok_or(PackageReferenceParseError::NumSections {
                     expected: 2,
                     got: 1,
+                    provided: fullname.as_ref().to_string(),
                 })?;
         Ok(PackageReference {
             namespace: namespace.to_string(),
@@ -63,6 +64,7 @@ impl FromStr for PackageReference {
             .map_err(|v: Vec<&str>| PackageReferenceParseError::NumSections {
                 expected: 3,
                 got: v.len() - 1,
+                provided: s.to_string(),
             })?;
 
         Ok(PackageReference {
@@ -81,8 +83,8 @@ impl Display for PackageReference {
 
 #[derive(thiserror::Error, Debug)]
 pub enum PackageReferenceParseError {
-    #[error("Expected {expected} sections, got {got}.")]
-    NumSections { expected: usize, got: usize },
+    #[error("Expected {expected} sections, got {got} for string '{provided}'")]
+    NumSections { expected: usize, got: usize, provided: String },
     #[error("Failed to parse version: {0}.")]
     VersionParseFail(#[from] VersionParseError),
 }

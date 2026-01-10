@@ -1,3 +1,4 @@
+pub mod progress;
 pub mod reporter;
 
 use indicatif::ProgressStyle;

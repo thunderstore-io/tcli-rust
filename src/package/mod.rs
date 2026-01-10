@@ -21,7 +21,7 @@ use crate::error::{Error, IoError, IoResultToTcli};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
 use crate::ts::{self, CLIENT};
-use crate::ui::reporter::ProgressBarTrait;
+use crate::ui::progress;
 use crate::TCLI_HOME;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -165,7 +165,7 @@ impl Package {
         }))
     }
 
-    pub async fn download(&self, reporter: &dyn ProgressBarTrait) -> Result<PathBuf, Error> {
+    pub async fn download(&self) -> Result<PathBuf, Error> {
         let PackageSource::Remote(package_source) = &self.source else {
             panic!("Invalid use, this is a local package.")
         };
@@ -173,40 +173,35 @@ impl Package {
         let output_path = cache::get_cache_location(&self.identifier);
 
         if output_path.is_dir() {
-            reporter.finish();
             return Ok(output_path);
         }
 
+        let pkg_id = self.identifier.to_string();
         let download_result = CLIENT.get(package_source).send().await.unwrap();
-        let download_size = download_result.content_length().unwrap();
+        let download_size = download_result.content_length().unwrap_or(0);
 
-        let progress_message = format!(
-            "{}-{} ({})",
-            self.identifier.namespace.bold(),
-            self.identifier.name.bold(),
-            self.identifier.version.to_string().truecolor(90, 90, 90)
-        );
-
-        reporter.set_length(download_size);
-        reporter.set_message(format!("Downloading {progress_message}..."));
+        progress::scope_progress(&pkg_id, 0, Some("downloading"));
 
         let mut download_stream = download_result.bytes_stream();
 
         let mut temp_file = cache::get_temp_zip_file(&self.identifier).await?;
         let zip_file = temp_file.file_mut();
 
+        let mut downloaded: u64 = 0;
         while let Some(chunk) = download_stream.next().await {
             let chunk = chunk.unwrap();
             zip_file.write_all(&chunk).await.unwrap();
-
-            reporter.inc(chunk.len() as u64);
+            downloaded += chunk.len() as u64;
+            
+            if download_size > 0 {
+                let pct = (downloaded * 100) / download_size;
+                progress::scope_progress(&pkg_id, pct, None);
+            }
         }
 
-        reporter.set_message(format!("Extracting {progress_message}..."));
+        progress::scope_progress(&pkg_id, 100, Some("extracting"));
 
         let cache_path = add_to_cache(&self.identifier, temp_file.into_std().await.file())?;
-
-        // reporter.finish();
 
         Ok(cache_path)
     }
