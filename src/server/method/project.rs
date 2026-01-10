@@ -1,14 +1,12 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use super::Error;
 use crate::project::ProjectKind;
-use crate::server::proto::{Id, Response, ResponseData};
-use crate::server::{Runtime, ServerError};
+use crate::server::proto::{Id, Response};
+use crate::server::{Runtime, ServerError, Transport};
 use crate::ts::package_reference::PackageReference;
-use crate::{project::Project, ui::reporter::VoidReporter};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ProjectMethod {
@@ -24,12 +22,6 @@ pub enum ProjectMethod {
     InstalledPackages,
 }
 
-impl From<Option<Project>> for ServerError {
-    fn from(_val: Option<Project>) -> Self {
-        ServerError::InvalidContext
-    }
-}
-
 impl ProjectMethod {
     pub fn from_value(method: &str, value: serde_json::Value) -> Result<Self, Error> {
         Ok(match method {
@@ -43,39 +35,62 @@ impl ProjectMethod {
     }
 
     /// Route and execute various project methods.
-    /// Each of these call and interact directly with global project state.
-    pub async fn route(&self, rt: &mut Runtime) -> Result<(), Error> {
+    pub async fn route<T: Transport>(
+        &self,
+        id: Id,
+        rt: &Runtime,
+        transport: &mut T,
+    ) -> Result<(), Error> {
         match self {
             ProjectMethod::Open(OpenProject { path }) => {
-                // Unlock the previous ctx (if it exists) and relock this one.
-                rt.proj = Arc::new(Project::open(path).unwrap_or(Project::create_new(
-                    path,
-                    true,
-                    ProjectKind::Profile,
-                )?))
+                // Replace the project in the runtime
+                let new_project = crate::project::Project::open(path).unwrap_or(
+                    crate::project::Project::create_new(path, true, ProjectKind::Profile)?,
+                );
+                
+                let mut proj = rt.proj.write().map_err(|_| ServerError::InvalidContext)?;
+                *proj = new_project;
+                drop(proj);
+                
+                rt.send_response(transport, Response::ok(id, serde_json::json!({ "path": path }))).await;
             }
             ProjectMethod::GetMetadata => {
-                rt.send(Response {
-                    id: Id::String("OK".into()),
-                    data: ResponseData::Result(format!("{:?}", rt.proj.statefile_path)),
-                });
+                let proj = rt.proj.read().map_err(|_| ServerError::InvalidContext)?;
+                rt.send_response(transport, Response::ok(id, serde_json::json!({
+                    "statefile_path": proj.statefile_path,
+                    "manifest_path": proj.manifest_path,
+                    "lockfile_path": proj.lockfile_path,
+                }))).await;
             }
             ProjectMethod::AddPackages(packages) => {
-                rt.proj.add_packages(&packages.packages[..])?;
-                rt.proj.commit(Box::new(VoidReporter), false).await?;
+                {
+                    let proj = rt.proj.read().map_err(|_| ServerError::InvalidContext)?;
+                    proj.add_packages(&packages.packages[..])?;
+                    proj.commit(false).await?;
+                }
+                rt.send_response(
+                    transport,
+                    Response::ok(id, serde_json::json!({ "added": packages.packages.len() })),
+                ).await;
             }
             ProjectMethod::RemovePackages(packages) => {
-                rt.proj.remove_packages(&packages.packages[..])?;
-                rt.proj.commit(Box::new(VoidReporter), false).await?;
+                {
+                    let proj = rt.proj.read().map_err(|_| ServerError::InvalidContext)?;
+                    proj.remove_packages(&packages.packages[..])?;
+                    proj.commit(false).await?;
+                }
+                rt.send_response(
+                    transport,
+                    Response::ok(id, serde_json::json!({ "removed": packages.packages.len() })),
+                ).await;
             }
             ProjectMethod::InstalledPackages => {
-                let lock = rt.proj.get_lockfile()?;
-                let installed = lock.installed_packages().await?;
-
-                rt.send(Response {
-                    id: Id::Int(installed.len() as _),
-                    data: ResponseData::Result(serde_json::to_string(&installed)?),
-                });
+                let installed = {
+                    let proj = rt.proj.read().map_err(|_| ServerError::InvalidContext)?;
+                    let lock = proj.get_lockfile()?;
+                    lock.installed_packages().await?
+                };
+                rt.send_response(transport, Response::ok(id, installed)).await;
             }
         }
 
@@ -85,7 +100,7 @@ impl ProjectMethod {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct OpenProject {
-    path: PathBuf,
+    pub path: PathBuf,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]

@@ -20,7 +20,7 @@ pub enum FileAction {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct TrackedFile {
+pub struct LinkedFile {
     pub action: FileAction,
     pub path: PathBuf,
     pub context: Option<String>,
@@ -48,7 +48,7 @@ pub enum Request {
         package_dir: PathBuf,
         state_dir: PathBuf,
         staging_dir: PathBuf,
-        tracked_files: Vec<TrackedFile>,
+        tracked_files: Vec<LinkedFile>,
     },
     StartGame {
         mods_enabled: bool,
@@ -68,7 +68,7 @@ pub enum Response {
         protocol: Version,
     },
     PackageInstall {
-        tracked_files: Vec<TrackedFile>,
+        tracked_files: Vec<LinkedFile>,
         post_hook_context: Option<String>,
     },
     PackageUninstall {

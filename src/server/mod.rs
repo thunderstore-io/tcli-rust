@@ -1,209 +1,336 @@
-use std::io::{Read, Write};
+use std::io::{self, BufRead, Write};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, RwLock};
-use std::{io, thread};
 
+use futures_util::{SinkExt, StreamExt};
 use lock::ProjectLock;
 use once_cell::sync::Lazy;
-use proto::ResponseData;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::WebSocketStream;
 
-use self::proto::{Message, Request, Response};
+use self::proto::{Id, Message, Request, Response, RpcError};
 use crate::error::Error;
 use crate::project::Project;
 use crate::ts;
 
 mod lock;
-mod method;
-mod proto;
+pub mod method;
+pub mod proto;
 
-trait ToJson {
-    fn to_json(&self) -> Result<String, serde_json::Error>;
+/// Transport trait for receiving and sending JSON-RPC messages.
+/// Implementations can be stdin/stdout, WebSocket, TCP, etc.
+pub trait Transport {
+    /// Receive the next message. Returns None on EOF/disconnect.
+    fn recv(&mut self) -> impl std::future::Future<Output = Option<String>> + Send;
+    
+    /// Send a message.
+    fn send(&mut self, msg: &str) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+}
+
+/// Stdin/stdout transport for CLI usage.
+pub struct StdioTransport {
+    stdin: io::Stdin,
+    stdout: io::Stdout,
+    buf: String,
+}
+
+impl StdioTransport {
+    pub fn new() -> Self {
+        Self {
+            stdin: io::stdin(),
+            stdout: io::stdout(),
+            buf: String::new(),
+        }
+    }
+}
+
+impl Transport for StdioTransport {
+    async fn recv(&mut self) -> Option<String> {
+        self.buf.clear();
+        match self.stdin.lock().read_line(&mut self.buf) {
+            Ok(0) => None, // EOF
+            Ok(_) => Some(self.buf.trim().to_string()),
+            Err(_) => None,
+        }
+    }
+
+    async fn send(&mut self, msg: &str) -> Result<(), Error> {
+        let mut out = self.stdout.lock();
+        writeln!(out, "{}", msg).map_err(|e| Error::Server(ServerError::InvalidRequest(e.to_string())))?;
+        out.flush().map_err(|e| Error::Server(ServerError::InvalidRequest(e.to_string())))?;
+        Ok(())
+    }
+}
+
+/// WebSocket transport for GUI/remote usage.
+pub struct WebSocketTransport {
+    ws: WebSocketStream<TcpStream>,
+}
+
+impl WebSocketTransport {
+    pub fn new(ws: WebSocketStream<TcpStream>) -> Self {
+        Self { ws }
+    }
+}
+
+impl Transport for WebSocketTransport {
+    async fn recv(&mut self) -> Option<String> {
+        loop {
+            match self.ws.next().await {
+                Some(Ok(WsMessage::Text(text))) => return Some(text.to_string()),
+                Some(Ok(WsMessage::Close(_))) => return None,
+                Some(Ok(WsMessage::Ping(data))) => {
+                    // Respond to ping with pong
+                    let _ = self.ws.send(WsMessage::Pong(data)).await;
+                    continue;
+                }
+                Some(Ok(_)) => continue, // Ignore binary, pong, etc.
+                Some(Err(_)) => return None,
+                None => return None,
+            }
+        }
+    }
+
+    async fn send(&mut self, msg: &str) -> Result<(), Error> {
+        self.ws
+            .send(WsMessage::Text(msg.into()))
+            .await
+            .map_err(|e| Error::Server(ServerError::InvalidRequest(e.to_string())))
+    }
 }
 
 /// This is our project dir singleton. It will likely be refactored, but also likely not.
-/// It's buried within a couple layers of abstraction. The Lazy is because PathBuf does not have
-/// a static new(), RwLock is so we can have thread-safe interior mutability.
 static PROJECT_DIR: Lazy<RwLock<PathBuf>> = Lazy::new(Default::default);
 
-/// This error type exists to wrap library errors into a single easy-to-use package.
+/// Server-specific errors. These map to JSON-RPC error codes.
+/// TODO: Replace with macro-based system for inline error metadata.
 #[derive(thiserror::Error, Debug)]
-#[repr(isize)]
 pub enum ServerError {
-    /// A partial implementation of the error variants described by the JRPC spec.
-    #[error("Failed to serialize JSON: {0:?}")]
-    InvalidJson(#[from] serde_json::Error) = -32700,
+    #[error("Failed to parse JSON: {0}")]
+    InvalidJson(#[from] serde_json::Error),
 
-    #[error("The method {0} is not valid.")]
-    InvalidMethod(String) = -32601,
+    #[error("Invalid request: {0}")]
+    InvalidRequest(String),
 
-    #[error("Recieved invalid params for method {0}: {1}")]
-    InvalidParams(String, String) = -32602,
+    #[error("Method not found: {0}")]
+    InvalidMethod(String),
 
-    #[error("")]
-    InvalidContext = 0,
+    #[error("Invalid params for {0}: {1}")]
+    InvalidParams(String, String),
+
+    #[error("No project context available")]
+    InvalidContext,
+
+    #[error("Project is locked by another process")]
+    ProjectLocked,
+
+    #[error("WebSocket error: {0}")]
+    WebSocket(String),
 }
 
-impl Error {
-    pub fn discriminant(&self) -> isize {
-        // SAFETY: `Self` is `repr(isize)` with layout `repr(C)`, with each variant having an isize
-        // as its first field, so we can access this value without a pointer offset.
-        unsafe { *<*const _>::from(self).cast::<isize>() }
-    }
-}
-
-impl ToJson for Result<Response, Error> {
-    fn to_json(&self) -> Result<String, serde_json::Error> {
-        todo!()
-    }
-}
-
-/// Runtime context for the server. This is mutable state, protected through a RwLock.
-/// Mutations require a lock first, attainable through ::lock().
-struct Runtime {
-    tx: Sender<Message>,
-    proj: Arc<Project>,
+/// Runtime context for the server.
+pub struct Runtime {
+    pub proj: Arc<RwLock<Project>>,
+    _lock: ProjectLock,
 }
 
 impl Runtime {
-    pub fn send(&self, response: Response) {
-        self.tx
-            .send(Message::Response(response))
-            .expect("Failed to write to mpsc tx channel.");
+    /// Create a new runtime, acquiring an exclusive lock on the project.
+    pub fn new(project_dir: &Path) -> Result<Self, Error> {
+        let lock = ProjectLock::lock(project_dir)
+            .ok_or(ServerError::ProjectLocked)?;
+        
+        let project = Project::open(project_dir)?;
+        
+        Ok(Self {
+            proj: Arc::new(RwLock::new(project)),
+            _lock: lock,
+        })
+    }
+
+    /// Send a response through the provided transport.
+    pub async fn send_response<T: Transport>(&self, transport: &mut T, response: Response) {
+        let json = serde_json::to_string(&response).unwrap_or_else(|e| {
+            serde_json::to_string(&Response::err(
+                Id::Null,
+                RpcError::internal_error(format!("Serialization failed: {e}")),
+            ))
+            .unwrap()
+        });
+        let _ = transport.send(&json).await;
+    }
+
+    /// Execute a read-only operation on the project.
+    pub fn with_project<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&Project) -> Result<R, Error>,
+    {
+        let proj = self.proj.read().map_err(|_| ServerError::InvalidContext)?;
+        f(&proj)
+    }
+
+    /// Execute a mutable operation on the project.
+    pub fn with_project_mut<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut Project) -> Result<R, Error>,
+    {
+        let mut proj = self.proj.write().map_err(|_| ServerError::InvalidContext)?;
+        f(&mut proj)
     }
 }
 
-/// Runtime context, mutable or otherwise. This contains the project, by which most
-/// project-specific ops go through.
-struct RtContext {
-    pub project: Project,
-    pub lock: ProjectLock,
-}
-
-/// Create the server runtime from the provided read and write channels.
-/// This lives for the lifespan of the process.
-pub async fn spawn(_read: impl Read, _write: impl Write, project_dir: &Path) -> Result<(), Error> {
-    let (tx, rx) = mpsc::channel::<Message>();
-    let cancel = RwLock::new(false);
-
-    // This thread recieves internal mpsc messages, serializes, and writes them to stdout.
-    thread::spawn(move || respond_msg(rx, cancel));
-
-    // Begin looping over stdin messages.
-    let stdin = io::stdin();
-    let mut line = String::new();
-
-    let mut rt = Runtime {
-        tx,
-        proj: Arc::new(Project::open(project_dir)?),
-    };
-
+/// Create and run the server with the given transport.
+pub async fn run<T: Transport>(mut transport: T, project_dir: &Path) -> Result<(), Error> {
+    let rt = Runtime::new(project_dir)?;
+    
     ts::init_repository("https://thunderstore.io", None);
 
-    loop {
-        if let Err(_) = stdin.read_line(&mut line) {
-            panic!("");
-        };
+    while let Some(line) = transport.recv().await {
+        if line.is_empty() {
+            continue;
+        }
 
-        println!("LINE: {line}");
-
-        match Message::from_json(&line) {
-            Ok(msg) => route(msg, &mut rt).await?,
+        // Parse the message
+        let msg = match Message::from_json(&line) {
+            Ok(msg) => msg,
             Err(e) => {
-                rt.tx
-                    .send(Message::Response(Response {
-                        id: proto::Id::String("FUCK".into()),
-                        data: ResponseData::Error(e.to_string()),
-                    }))
-                    .unwrap();
+                let rpc_err = match &e {
+                    Error::Server(se) => RpcError::from(se),
+                    _ => RpcError::parse_error(e.to_string()),
+                };
+                rt.send_response(&mut transport, Response::err(Id::Null, rpc_err)).await;
+                continue;
             }
         };
 
-        // if let Ok(msg) = Message::from_json(&line) {
-        // } else {
-        // }
+        // Route the message
+        if let Err(e) = route(msg, &rt, &mut transport).await {
+            let rpc_err = match &e {
+                Error::Server(se) => RpcError::from(se),
+                _ => RpcError::internal_error(e.to_string()),
+            };
+            rt.send_response(&mut transport, Response::err(Id::Null, rpc_err)).await;
+        }
+    }
 
-        // let msg = Message::from_json(&line);
-        // route(msg, &rt).await?;
+    Ok(())
+}
+
+/// Convenience function to spawn with stdio transport.
+pub async fn spawn_stdio(project_dir: &Path) -> Result<(), Error> {
+    run(StdioTransport::new(), project_dir).await
+}
+
+/// Start a WebSocket server on the given address.
+/// Each connection is handled sequentially to avoid Send requirements
+/// from the non-Send Reporter/Progress traits used in the project code.
+pub async fn spawn_websocket(addr: SocketAddr, project_dir: &Path) -> Result<(), Error> {
+    let listener = TcpListener::bind(addr)
+        .await
+        .map_err(|e| ServerError::WebSocket(e.to_string()))?;
+
+    println!("WebSocket server listening on ws://{}", addr);
+
+    let rt = Runtime::new(project_dir)?;
+    ts::init_repository("https://thunderstore.io", None);
+
+    loop {
+        let (stream, peer) = listener
+            .accept()
+            .await
+            .map_err(|e| ServerError::WebSocket(e.to_string()))?;
+
+        match tokio_tungstenite::accept_async(stream).await {
+            Ok(ws) => {
+                println!("New WebSocket connection from {}", peer);
+                let mut transport = WebSocketTransport::new(ws);
+                if let Err(e) = run_with_runtime(&rt, &mut transport).await {
+                    eprintln!("Connection error from {}: {}", peer, e);
+                }
+                println!("Connection closed: {}", peer);
+            }
+            Err(e) => {
+                eprintln!("WebSocket handshake failed from {}: {}", peer, e);
+            }
+        }
     }
 }
 
-/// Route
-async fn route(msg: Message, rt: &mut Runtime) -> Result<(), Error> {
+/// Run the server loop with an existing runtime (for shared WebSocket connections).
+async fn run_with_runtime<T: Transport>(rt: &Runtime, transport: &mut T) -> Result<(), Error> {
+    while let Some(line) = transport.recv().await {
+        if line.is_empty() {
+            continue;
+        }
+
+        let msg = match Message::from_json(&line) {
+            Ok(msg) => msg,
+            Err(e) => {
+                let rpc_err = match &e {
+                    Error::Server(se) => RpcError::from(se),
+                    _ => RpcError::parse_error(e.to_string()),
+                };
+                rt.send_response(transport, Response::err(Id::Null, rpc_err)).await;
+                continue;
+            }
+        };
+
+        if let Err(e) = route(msg, rt, transport).await {
+            let rpc_err = match &e {
+                Error::Server(se) => RpcError::from(se),
+                _ => RpcError::internal_error(e.to_string()),
+            };
+            rt.send_response(transport, Response::err(Id::Null, rpc_err)).await;
+        }
+    }
+
+    Ok(())
+}
+
+/// Route a message to its handler.
+async fn route<T: Transport>(msg: Message, rt: &Runtime, transport: &mut T) -> Result<(), Error> {
     match msg {
-        Message::Request(rq) => route_rq(Request::try_from(rq)?, rt).await?,
-        Message::Response(_) => panic!(),
+        Message::Request(rq) => {
+            let id = rq.id.clone();
+            match Request::try_from(rq) {
+                Ok(request) => route_rq(request, rt, transport).await,
+                Err(e) => {
+                    let rpc_err = match &e {
+                        Error::Server(se) => RpcError::from(se),
+                        Error::Parse(pe) => RpcError::invalid_params(pe.to_string()),
+                        _ => RpcError::internal_error(e.to_string()),
+                    };
+                    rt.send_response(transport, Response::err(id, rpc_err)).await;
+                    Ok(())
+                }
+            }
+        }
+        Message::Response(_) => Ok(()),
+    }
+}
+
+/// Route a validated request to its method handler.
+async fn route_rq<T: Transport>(rq: Request, rt: &Runtime, transport: &mut T) -> Result<(), Error> {
+    let id = rq.id.clone();
+
+    let result = match rq.method {
+        method::Method::Exit => {
+            rt.send_response(transport, Response::ok(id, "exiting")).await;
+            return Ok(());
+        }
+        method::Method::Project(proj) => proj.route(id.clone(), rt, transport).await,
+        method::Method::Package(pack) => pack.route(id.clone(), rt, transport).await,
+    };
+
+    if let Err(e) = result {
+        let rpc_err = match &e {
+            Error::Server(se) => RpcError::from(se),
+            _ => RpcError::internal_error(e.to_string()),
+        };
+        rt.send_response(transport, Response::err(id, rpc_err)).await;
     }
 
     Ok(())
 }
-
-// Request routing
-async fn route_rq(rq: Request, rt: &mut Runtime) -> Result<(), Error> {
-    match rq.method {
-        method::Method::Exit => todo!(),
-        method::Method::Project(proj) => proj.route(rt).await?,
-        method::Method::Package(pack) => pack.route(rt).await?,
-    }
-
-    Ok(())
-}
-
-// /// The daemon's entrypoint. This is a psuedo event loop which does the following in step:
-// /// 1. Read JSON-RPC input(s) from stdin.
-// /// 2. Route each input.
-// /// 3. Serialize the output and write to stdout.
-// async fn start() {
-//     let stdin = io::stdin();
-//     let mut line = String::new();
-//     let (send, recv) = mpsc::channel::<Result<Response, Error>>();
-
-//     let cancel = RwLock::new(false);
-
-//     // Responses are published through the tx send channel.
-//     // thread::spawn(move || respond_msg(recv, cancel));
-
-//     loop {
-//         // Block the main thread until we have an input line available to be read.
-//         // This is ok because, in theory, tasks will be processed on background threads.
-//         if let Err(e) = stdin.read_line(&mut line) {
-//             panic!("")
-//         }
-//         let res = route(&line, self.ctx, send.clone()).await;
-//         res.to_json().unwrap();
-//     }
-// }
-
-fn respond_msg(recv: Receiver<Message>, _cancel: RwLock<bool>) {
-    let mut stdout = io::stdout();
-    while let Ok(res) = recv.recv() {
-        let msg = serde_json::to_string(&res);
-        stdout.write_all(msg.unwrap().as_bytes()).unwrap();
-        stdout.write_all("\n".as_bytes()).unwrap();
-    }
-}
-
-// Route and execute the request, returning the result.
-// Messages, including the result of subsequent computation, are sent over the sender channel.
-// async fn route(line: &str, ctx: RwLock<Project>, send: Sender<Result<Response, Error>>) -> Result<Response, Error> {
-//     let req = Message::from_json(line)?;
-//     match req {
-//         Message::Request(rq) => route_rq(Request::try_from(rq)?, ctx, send).await,
-//         Message::Response(_) => panic!(),
-//     }
-// }
-
-// /// Do the actual Request routing here.
-// /// One more level of abstraction. This routes calls to their actual implementation within
-// /// the method module.
-// async fn route_rq(
-//     request: Request,
-//     ctx: RwLock<Project>,
-//     send: Sender<Result<Response, Error>>,
-// ) -> Result<Response, Error> {
-//     match request.method {
-//         method::Method::Exit => todo!(),
-//         method::Method::Project(x) => x.route(ctx, send).await,
-//         method::Method::Package(_) => todo!(),
-//     }
-//

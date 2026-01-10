@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
@@ -6,7 +6,7 @@ use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use colored::Colorize;
+
 use error::ProjectError;
 use futures::future::try_join_all;
 pub use publish::publish;
@@ -18,24 +18,24 @@ use crate::error::{Error, IoError, IoResultToTcli};
 use crate::game::registry::GameData;
 use crate::game::{proc, registry};
 use crate::package::index::PackageIndex;
-use crate::package::install::api::TrackedFile;
-use crate::package::install::Installer;
+use crate::package::install::tracked::{ConcreteFs, TrackedFs};
+use crate::package::install::{self, PackageInstaller};
 use crate::package::resolver::DependencyGraph;
 use crate::package::{resolver, Package};
 use crate::project::manifest::ProjectManifest;
 use crate::project::overrides::ProjectOverrides;
-use crate::project::state::{StagedFile, StateFile};
+use crate::project::state::{StateEntry, StateFile};
 use crate::ts::package_manifest::PackageManifestV1;
 use crate::ts::package_reference::PackageReference;
-use crate::ui::reporter::{Progress, Reporter};
+use crate::ui::progress;
 use crate::{util, TCLI_HOME};
 
 pub mod error;
 pub mod lock;
 pub mod manifest;
 pub mod overrides;
-mod publish;
-mod state;
+pub mod publish;
+pub mod state;
 
 pub enum ProjectKind {
     Dev(ProjectOverrides),
@@ -289,85 +289,78 @@ impl Project {
 
     async fn install_packages(
         &self,
-        installer: &Installer,
         statefile: &mut StateFile,
         packages: Vec<&PackageReference>,
-        multi: &dyn Progress,
+        all_resolved: &[PackageReference],
     ) -> Result<(), Error> {
-        let packages = try_join_all(
-            packages
-                .into_iter()
-                .map(|x| async move { Package::from_any(x).await }),
-        )
-        .await?;
+        // Determine the modloader using the full resolved package list.
+        let modloader = install::guess_modloader(all_resolved)
+            .await
+            .expect("Could not determine modloader. Ensure a modloader package is in your dependencies.");
+        let modloader_packages = install::get_modloader_packages(all_resolved).await;
+
+        let packages = packages
+            .into_iter()
+            .map(|x| async move { Package::from_any(x).await });
 
         let sem = Arc::new(Semaphore::new(5));
 
-        let jobs = packages.into_iter().map(|package| async {
-            let _permit = sem.acquire().await.unwrap();
+        let jobs = packages.into_iter().map(|package| {
+            let modloader = modloader.clone();
+            let modloader_packages = modloader_packages.clone();
+            let sem = sem.clone();
+            
+            async move {
+                let _permit = sem.acquire().await.unwrap();
+                let package = package.await?;
+                let pkg_id = package.identifier.to_string();
+                let is_modloader = modloader_packages.contains(&package.identifier.to_loose_ident_string());
 
-            let bar = multi.add_bar();
-            let bar = bar.as_ref();
+                progress::scope_start_child(&pkg_id, "install", &package.identifier.name);
 
-            // Resolve the package, either downloading it or returning its cached path.
-            let package_dir = match package.get_path().await {
-                Some(x) => x,
-                None => package.download(bar).await?,
-            };
-            let tracked_files = installer
-                .install_package(
-                    &package,
-                    &package_dir,
-                    &self.state_dir,
-                    &self.staging_dir,
-                    bar,
-                )
-                .await;
+                // Resolve the package, either downloading it or returning its cached path.
+                progress::scope_progress(&pkg_id, 0, Some("resolving"));
+                let package_dir = match package.get_path().await {
+                    Some(x) => x,
+                    None => package.download().await?,
+                };
 
-            let finished_msg = match tracked_files {
-                Ok(_) => format!(
-                    "{} Installed {}-{} {}",
-                    "[✓]".green(),
-                    package.identifier.namespace.bold(),
-                    package.identifier.name.bold(),
-                    package.identifier.version.to_string().truecolor(90, 90, 90)
-                ),
-                Err(ref e) => format!(
-                    "{} Error {}-{} {}\n\t{}",
-                    "[x]".red(),
-                    package.identifier.namespace.bold(),
-                    package.identifier.name.bold(),
-                    package.identifier.version.to_string().truecolor(90, 90, 90),
-                    e,
-                ),
-            };
+                let mut installer = install::get_installer(&modloader, ConcreteFs::new(StateEntry::default()));
 
-            bar.println(&finished_msg);
+                progress::scope_progress(&pkg_id, 0, Some("installing"));
+                let install_result = installer
+                    .install_package(
+                        &package,
+                        &package_dir,
+                        &self.state_dir,
+                        &self.staging_dir,
+                        is_modloader,
+                    )
+                    .await;
 
-            tracked_files.map(|x| (package.identifier, x))
+                // On success, extract the tracked state and return it with the package id.
+                match install_result {
+                    Ok(_) => {
+                        progress::scope_complete(&pkg_id);
+                        let state = installer.extract_state();
+                        Ok((package.identifier, state))
+                    }
+                    Err(e) => {
+                        progress::scope_fail(&pkg_id, e.to_string());
+                        Err(e)
+                    }
+                }
+            }
         });
 
-        let tracked_files = try_join_all(jobs)
-            .await?
-            .into_iter()
-            .collect::<Vec<(PackageReference, Vec<TrackedFile>)>>();
+        let results = try_join_all(jobs).await?;
 
-        // Iterate through each installed mod, separate tracked files into "link" and "stage" variants.
-        // TODO: Make this less hacky, we shouldn't be relying on path ops to determine this.
-        for (package, tracked_files) in tracked_files {
-            let staged_files = tracked_files
-                .iter()
-                .filter(|x| x.path.starts_with(&self.staging_dir))
-                .map(|x| StagedFile::new(x.clone()))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let linked_files = tracked_files
-                .into_iter()
-                .filter(|x| x.path.starts_with(&self.state_dir));
-
-            let group = statefile.state.entry(package).or_default();
-            group.staged.extend(staged_files);
-            group.linked.extend(linked_files);
+        // Merge tracked files into the statefile.
+        for (package_id, state_entry) in results {
+            // Merge the new state with any existing state for this package.
+            let existing = statefile.entry(package_id);
+            existing.staged.extend(state_entry.staged);
+            existing.linked.extend(state_entry.linked);
         }
 
         Ok(())
@@ -375,10 +368,8 @@ impl Project {
 
     async fn uninstall_packages(
         &self,
-        installer: &Installer,
         statefile: &mut StateFile,
         packages: Vec<&PackageReference>,
-        multi: &dyn Progress,
     ) -> Result<(), Error> {
         let packages = try_join_all(
             packages
@@ -387,65 +378,39 @@ impl Project {
         )
         .await?;
 
-        // Uninstall each package in parallel.
-        try_join_all(packages.iter().map(|package| async {
-            let bar = multi.add_bar();
-            let bar = bar.as_ref();
-
-            let package_dir = match package.get_path().await {
-                Some(x) => x,
-                None => package.download(bar).await?,
-            };
-            let state_entry = statefile.state.get(&package.identifier);
-
-            let tracked_files = state_entry
-                .map_or(vec![], |x| x.staged.clone())
-                .into_iter()
-                .map(|x| x.action)
-                .chain(state_entry.map_or(vec![], |x| x.linked.clone()))
-                .collect::<Vec<_>>();
-
-            installer
-                .uninstall_package(
-                    package,
-                    &package_dir,
-                    &self.state_dir,
-                    &self.staging_dir,
-                    tracked_files,
-                    bar,
-                )
-                .await
-        }))
-        .await?;
-
-        // Run post-uninstall cleanup / validation ops.
-        // 1. Invalidate staged files, removing them from the statefile if they no longer exist.
-        // 2. Cleanup empty directories within staging and state.
-        // 3. Remove uninstalled / invalidated entries from the statefile.
+        // For each package to uninstall:
+        // 1. Remove all staged files that were copied to game directories
+        // 2. Remove all linked files from the state directory
+        // 3. Remove the package's entry from the statefile
         for package in packages {
-            let entry = statefile.state.get(&package.identifier).unwrap();
-            let staged = &entry.staged;
+            let pkg_id = package.identifier.to_string();
+            progress::scope_start_child(&pkg_id, "uninstall", &package.identifier.name);
 
-            // Determine the list of entries that will be invalidated.
-            let invalid_staged_entries = staged.iter().filter(|x| !x.action.path.is_file());
+            let Some(entry) = statefile.get(&package.identifier) else {
+                progress::scope_complete(&pkg_id);
+                continue;
+            };
 
-            for staged_entry in invalid_staged_entries {
-                // Each dest is checked if it (a) exists and (b) is the same as orig.
-                let dests_to_remove =
-                    staged_entry.dest.iter().filter_map(|path| {
-                        match staged_entry.is_same_as(path) {
-                            Ok(x) if x => Some(Ok(path)),
-                            Ok(_) => None,
-                            Err(e) => Some(Err(e)),
-                        }
-                    });
-
-                for dest in dests_to_remove {
-                    fs::remove_file(dest?)?;
+            // Remove staged file destinations (files copied to game dir at launch)
+            for staged in &entry.staged {
+                for dest in &staged.dest {
+                    // Only remove if the file still matches what we installed
+                    if let Ok(true) = staged.is_same_as(dest) {
+                        let _ = fs::remove_file(dest);
+                    }
                 }
+                // Remove the source file in staging dir
+                let _ = fs::remove_file(&staged.file.path);
             }
 
-            statefile.state.remove(&package.identifier);
+            // Remove linked files from state dir
+            for linked in &entry.linked {
+                let _ = fs::remove_file(&linked.path);
+            }
+
+            // Remove package from statefile
+            statefile.remove(&package.identifier);
+            progress::scope_complete(&pkg_id);
         }
 
         // Cleanup empty directories in the state and staging dirs.
@@ -456,43 +421,46 @@ impl Project {
     }
 
     /// Commit changes made to the project manifest to the project.
-    pub async fn commit(&self, reporter: Box<dyn Reporter>, sync: bool) -> Result<(), Error> {
+    pub async fn commit(&self, sync: bool) -> Result<(), Error> {
         if sync {
+            progress::scope_start("sync", "Syncing package index");
             PackageIndex::sync(&TCLI_HOME).await?;
+            progress::scope_complete("sync");
         }
+
         let lockfile = LockFile::open_or_new(&self.lockfile_path)?;
         let lockfile_graph = DependencyGraph::from_graph(lockfile.package_graph);
 
         let manifest = ProjectManifest::read_from_file(&self.manifest_path)?;
         let package_graph = resolver::resolve_packages(manifest.dependencies.dependencies).await?;
 
-        // Compare the lockfile and new graphs to determine the
+        // Get the full list of resolved packages for modloader detection.
+        let all_resolved: Vec<_> = package_graph.digest().into_iter().cloned().collect();
+        
         let delta = lockfile_graph.graph_delta(&package_graph);
 
-        println!(
-            "{} packages will be installed, {} will be removed.",
+        progress::info(format!(
+            "{} packages to install, {} to remove",
             delta.add.len(),
             delta.del.len()
-        );
+        ));
 
-        let installer = Installer::override_new();
         let mut statefile = StateFile::open_or_new(&self.statefile_path)?;
-
-        let multi = reporter.create_progress();
 
         let packages_to_remove = delta.del.iter().rev().collect::<Vec<_>>();
         let packages_to_add = delta.add.iter().rev().collect::<Vec<_>>();
 
-        self.uninstall_packages(
-            &installer,
-            &mut statefile,
-            packages_to_remove,
-            multi.borrow(),
-        )
-        .await?;
+        if !packages_to_remove.is_empty() {
+            progress::scope_start("uninstall", "Removing packages");
+            self.uninstall_packages(&mut statefile, packages_to_remove).await?;
+            progress::scope_complete("uninstall");
+        }
 
-        self.install_packages(&installer, &mut statefile, packages_to_add, multi.borrow())
-            .await?;
+        if !packages_to_add.is_empty() {
+            progress::scope_start("install", "Installing packages");
+            self.install_packages(&mut statefile, packages_to_add, &all_resolved).await?;
+            progress::scope_complete("install");
+        }
 
         // Write the statefile with changes made during unins
         statefile.write(&self.statefile_path)?;
@@ -507,8 +475,8 @@ impl Project {
     pub async fn start_game(
         &self,
         game_id: &str,
-        mods_enabled: bool,
-        args: Vec<String>,
+        _mods_enabled: bool,
+        _args: Vec<String>,
     ) -> Result<(), Error> {
         let game_data = registry::get_game_data(&self.game_registry_path, game_id)
             .ok_or_else(|| ProjectError::InvalidGameId(game_id.to_string()))?;
@@ -520,7 +488,7 @@ impl Project {
         let staged_files = statefile.state.values_mut().flat_map(|x| &mut x.staged);
 
         for file in staged_files {
-            let rel = file.action.path.strip_prefix(&self.staging_dir).unwrap();
+            let rel = file.file.path.strip_prefix(&self.staging_dir).unwrap();
             let dest = game_dir.join(rel);
 
             if file.is_same_as(&dest)? {
@@ -532,37 +500,37 @@ impl Project {
                 fs::create_dir_all(dest_parent)?;
             }
 
-            fs::copy(&file.action.path, &dest)?;
+            fs::copy(&file.file.path, &dest)?;
             file.dest.push(dest);
         }
 
         statefile.write(&self.statefile_path)?;
 
-        let installer = Installer::override_new();
-        let pid = installer
-            .start_game(
-                mods_enabled,
-                &self.state_dir,
-                &game_dist.game_dir,
-                &game_dist.exe_path,
-                args,
-            )
-            .await?;
+        // let installer = Installer::override_new();
+        // let pid = installer
+        //     .start_game(
+        //         mods_enabled,
+        //         &self.state_dir,
+        //         &game_dist.game_dir,
+        //         &game_dist.exe_path,
+        //         args,
+        //     )
+        //     .await?;
 
-        // The PID file is contained within the state dir and is of name `game.exe.pid`.
-        let pid_path = self
-            .base_dir
-            .join(".tcli")
-            .join(format!("{}.pid", game_data.identifier));
+        // // The PID file is contained within the state dir and is of name `game.exe.pid`.
+        // let pid_path = self
+        //     .base_dir
+        //     .join(".tcli")
+        //     .join(format!("{}.pid", game_data.identifier));
 
-        let mut pid_file = File::create(pid_path)?;
-        pid_file.write_all(format!("{}", pid).as_bytes())?;
+        // let mut pid_file = File::create(pid_path)?;
+        // pid_file.write_all(format!("{}", pid).as_bytes())?;
 
-        println!(
-            "{} has been started with PID {}.",
-            game_data.display_name.green(),
-            pid
-        );
+        // println!(
+        //     "{} has been started with PID {}.",
+        //     game_data.display_name.green(),
+        //     pid
+        // );
 
         Ok(())
     }
